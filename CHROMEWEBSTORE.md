@@ -44,9 +44,9 @@ Productivity(生产力工具)
 | Asset | Dimensions | Status | Filename |
 |-------|-----------|--------|----------|
 | Store Icon [REQUIRED] | 128×128 PNG | ✅ Ready | icons/icon-128.png |
-| Screenshot 1 [REQUIRED] | 1280×800 | ⬜ Not created | 计划:网页输入框中听写浮层显示实时文字 |
-| Screenshot 2 [RECOMMENDED] | 1280×800 | ⬜ Not created | 计划:Ask 结果卡片(替换/插入/复制按钮) |
-| Screenshot 3 [RECOMMENDED] | 1280×800 | ⬜ Not created | 计划:popup 主界面 |
+| Screenshot 1 [REQUIRED] | 1280×800 | ✅ Ready | screenshots/02-listening.jpg(听写浮层) |
+| Screenshot 2 [RECOMMENDED] | 1280×800 | ✅ Ready | screenshots/01-settings.jpg(设置页/模型状态) |
+| Screenshot 3 [RECOMMENDED] | 1280×800 | ✅ Ready | screenshots/03-dictionary.jpg(热词词典) |
 | Small Promo Tile [RECOMMENDED] | 440×280 | ⬜ Not created | |
 
 ### Screenshot Notes
@@ -102,7 +102,7 @@ Productivity(生产力工具)
 ## Publishing Readiness
 
 - [ ] 128×128 图标 ✅
-- [ ] 至少 1 张 1280×800 截图 ⬜(需真机截屏)
-- [ ] 隐私政策 URL ⬜(需发布前提供,可放 GitHub Pages)
+- [x] 3 张 1280×800 截图 ✅
+- [x] 隐私政策 URL ✅ https://pmparker.net/crostivoice/privacy/
 - [ ] 打包 ZIP 排除 `.git/`、`tools/`、`testpage/`、`CHROMEWEBSTORE.md`
 - [ ] 单一用途声明与权限理由复核 ✅

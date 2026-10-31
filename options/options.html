@@ -98,6 +98,10 @@
 }
 
 * { box-sizing: border-box; }
+
+/* [hidden] must beat any display rule set by components (buttons, flex rows) */
+[hidden] { display: none !important; }
+
 html { scrollbar-color: var(--cv-scrollbar-thumb) transparent; }
 body {
   font-family: var(--cv-font-sans);
