@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>CrostiVoice 测试页</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 680px; margin: 40px auto; padding: 0 20px; line-height: 1.7; }
+  h1 { font-size: 22px; }
+  textarea, input { width: 100%; box-sizing: border-box; padding: 10px; font-size: 15px; margin: 6px 0 18px; }
+  .ce { border: 1px dashed #999; min-height: 80px; padding: 10px; border-radius: 6px; margin-bottom: 18px; }
+  kbd { background: #eee; border-radius: 4px; padding: 1px 6px; }
+  .ok { color: green; font-weight: bold; }
+</style>
+</head>
+<body>
+<h1>🎙 CrostiVoice 测试页</h1>
+<p>点击任意输入框,然后按 <kbd>Alt+V</kbd> 说话(或由自动化测试驱动注入)。</p>
+
+<h3>普通 input</h3>
+<input id="plain-input" placeholder="点我,然后按 Alt+V">
+
+<h3>textarea</h3>
+<textarea id="plain-textarea" rows="4" placeholder="多行输入"></textarea>
+
+<h3>contenteditable(模拟富文本/Docs)</h3>
+<div class="ce" contenteditable="true" id="rich">这是可编辑区域,直接点击后说话。</div>
+
+<p id="probe">content script: <b id="probe-status">未检测</b></p>
+<script>
+  // probe: content script sets a marker on the window via document title? No —
+  // content scripts live in an isolated world. The probe below checks the
+  // shadow-DOM host element the content script injects when active.
+  // For a simple "is it injected" check we look for the host after a message round-trip.
+  window.addEventListener("load", () => {
+    document.getElementById("probe-status").textContent =
+      "已加载,等待消息注入测试";
+  });
+</script>
+</body>
+</html>

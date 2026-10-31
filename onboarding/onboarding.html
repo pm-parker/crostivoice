@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>CrostiVoice 麦克风授权</title>
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    font-family: system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    max-width: 520px; margin: 0 auto; padding: 48px 20px; text-align: center;
+    background: #fff; color: #101828; line-height: 1.7;
+  }
+  @media (prefers-color-scheme: dark) { body { background: #0b1220; color: #f5f8ff; } }
+  h1 { font-size: 20px; }
+  .icon { width: 72px; height: 72px; border-radius: 18px; margin-bottom: 16px; }
+  .step { text-align: left; background: #f8fafc; border: 1px solid #eaecf0; border-radius: 12px; padding: 14px 18px; margin: 18px 0; font-size: 14px; }
+  @media (prefers-color-scheme: dark) { .step { background: #101828; border-color: #1f2937; } }
+  button {
+    background: #175cd3; color: #fff; border: none; border-radius: 10px;
+    padding: 12px 28px; font-size: 15px; cursor: pointer; margin-top: 8px;
+  }
+  .ok { color: #067647; font-size: 15px; }
+  .err { color: #b42318; font-size: 14px; }
+  kbd { background: #f2f4f7; border: 1px solid #d0d5dd; border-radius: 4px; padding: 1px 6px; font-size: 12px; }
+</style>
+</head>
+<body>
+  <img class="icon" src="../icons/icon-128.png" alt="">
+  <h1>欢迎使用 CrostiVoice 🎙</h1>
+  <p>说话,它替你打字。</p>
+
+  <div class="step">
+    <b>① 授权麦克风(只需一次)</b><br>
+    点击下面的按钮,浏览器会询问麦克风权限,选择「允许」。<br><br>
+    <button id="grant">授权麦克风</button>
+    <div id="result"></div>
+  </div>
+  <div class="step">
+    <b>② 开始使用</b><br>
+    打开任意网页,点一下输入框:<br>
+    · <b>点一下 <kbd>Search+A</kbd> 开始说话,说完停顿一下,文字自动断句上屏</b><br>
+    · 再按一下可立即结束 · 网页右下角麦克风同样点一下开始<br>
+    · 提示:不要长按搜索键(会触发系统 Assistant)
+    · 小技巧:口述「逗号」「句号」「问号」「换行」可直接输入标点
+  </div>
+  <div class="step">
+    <b>ChromeOS 提示</b><br>
+    如果没有声音,请确认系统设置已允许浏览器使用麦克风(设置 → 隐私和安全 → 网站设置 → 麦克风)。
+  </div>
+
+<script src="onboarding.js"></script>
+</body>
+</html>

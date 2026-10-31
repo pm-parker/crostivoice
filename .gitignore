@@ -1,0 +1,16 @@
+# 大模型文件由用户按需下载(设置页 → 下载模型),不入仓库
+vendor/punct-model.int8.onnx
+vendor/punct-tokens.json
+
+# 构建产物
+*.zip
+*.crx
+*.pem
+
+# 系统
+.DS_Store
+Thumbs.db
+node_modules/
+
+# 第三方运行时由 vendor-fetch.sh 拉取(不提交:避免 GitHub 密钥扫描误报与仓库膨胀)
+vendor/

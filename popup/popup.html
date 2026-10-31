@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    font-family: system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    width: 320px; margin: 0; padding: 16px;
+    background: #fff; color: #101828;
+  }
+  @media (prefers-color-scheme: dark) { body { background: #101828; color: #f5f8ff; } }
+  header { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+  header img { width: 22px; height: 22px; }
+  header h1 { font-size: 15px; margin: 0; flex: 1; }
+  .status { font-size: 13px; color: #667085; margin-bottom: 12px; }
+  .status b { color: #175cd3; }
+  .mic-warn {
+    background: #fff4ed; color: #7a2b0e; border: 1px solid #fecdca;
+    border-radius: 8px; padding: 10px; font-size: 13px; margin-bottom: 12px;
+  }
+  .mic-warn button { margin-top: 8px; }
+  .bigbtn {
+    display: block; width: 100%; box-sizing: border-box;
+    background: #175cd3; color: #fff; border: none; border-radius: 10px;
+    padding: 11px; font-size: 14px; cursor: pointer; margin-bottom: 8px;
+  }
+  .bigbtn.alt { background: transparent; color: #175cd3; border: 1px solid #175cd3; }
+  .bigbtn:disabled { opacity: .5; cursor: default; }
+  h2 { font-size: 12px; color: #667085; margin: 14px 0 6px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+  .hist { list-style: none; margin: 0; padding: 0; max-height: 180px; overflow: auto; }
+  .hist li { padding: 8px 0; border-bottom: 1px solid #eaecf0; font-size: 13px; }
+  .hist .t { color: #101828; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .hist .m { color: #98a2b3; font-size: 11px; margin-top: 2px; }
+  .empty { color: #98a2b3; font-size: 13px; padding: 8px 0; }
+  footer { display: flex; justify-content: space-between; margin-top: 14px; }
+  footer a { color: #175cd3; font-size: 13px; text-decoration: none; }
+  kbd { background: #f2f4f7; border: 1px solid #d0d5dd; border-radius: 4px; padding: 1px 5px; font-size: 11px; }
+  @media (prefers-color-scheme: dark) {
+    .hist li { border-color: #1f2937; } .hist .t { color: #f5f8ff; }
+    kbd { background: #1f2937; border-color: #344054; }
+    .mic-warn { background: #2b1305; border-color: #7a2b0e; }
+  }
+</style>
+</head>
+<body>
+  <header>
+    <img src="../icons/icon-48.png" alt="">
+    <h1>CrostiVoice</h1>
+    <a href="#" id="open-options">设置</a>
+  </header>
+
+  <div class="mic-warn" id="mic-warn" hidden>
+    首次使用需授权麦克风一次。
+    <button class="bigbtn" id="grant-mic">启用麦克风</button>
+  </div>
+
+  <div class="mic-warn" id="key-warn" hidden style="background:#fffaeb;border-color:#fec84b;color:#93370d">
+    <span id="key-warn-text"></span>
+    <button class="bigbtn" id="open-shortcuts2">去绑定快捷键</button>
+  </div>
+
+  <div class="status" id="status">加载中…</div>
+  <button class="bigbtn" id="btn-dictate">🎙 语音输入 <kbd>点一下 Search+A</kbd></button>
+
+  <h2>最近记录</h2>
+  <ul class="hist" id="hist"></ul>
+
+  <footer>
+    <span>快捷键可在 <a href="#" id="open-shortcuts">chrome://extensions/shortcuts</a> 修改</span>
+  </footer>
+  <script src="popup.js"></script>
+</body>
+</html>
