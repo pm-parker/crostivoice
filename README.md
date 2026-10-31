@@ -18,7 +18,9 @@ ChromeOS 上打中文依赖系统拼音,长句输入慢、纠错繁琐。CrostiV
 - **中英混排** — 自动加空格、英文句首大写
 - **规则引擎兜底** — 未下载模型时,规则断句依然工作
 
-不收集任何数据,无账号,无遥测。[隐私政策 →](PRIVACY.md)
+不收集任何数据,无账号,无遥测。[隐私政策 →](https://pmparker.net/crostivoice/privacy/)
+
+<img src="screenshots/02-listening.jpg" alt="实时听写浮层" width="820">
 
 ## 安装
 
