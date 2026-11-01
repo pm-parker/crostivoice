@@ -1,6 +1,6 @@
 # Chrome Web Store Listing — CrostiVoice 语音输入
 
-> Last Updated: 2026-10-31
+> Last Updated: 2026-11-01
 
 ## Store Listing
 
@@ -10,7 +10,7 @@ CrostiVoice 语音输入
 
 **Short Description** [REQUIRED]
 
-按住搜索键+A 说话,松开自动断句加标点并填入网页输入框,适合 ChromeOS。
+点一下 Search+A 说话,自动断句加标点填入网页输入框。本地 AI 模型离线纠错,零遥测。
 
 **Detailed Description** [REQUIRED]
 
