@@ -127,6 +127,25 @@ maybePolish 的裸 `create()`)。
 - Chrome 白名单加入 zh 后:更新 `LM_SUPPORTED_OUTPUT`(background.js 与
   options.js 两处)并恢复中文系统提示词路径即可。
 
+## wasm 预缓存告警修复(v0.11.3,2026-11-02)
+
+扩展页报 `Failed to cache ort-wasm-simd-threaded.asyncify.wasm: TypeError:
+Failed to execute 'put' on 'Cache': Request scheme 'chrome-extension' is
+unsupported`(来源:offscreen.html,堆栈指向 vendor/transformers.web.min.js)。
+
+机制:csc-engine 把 transformers.js 的 `env.backends.onnx.wasm.wasmPaths` 指向
+扩展自带文件(chrome-extension:// 协议)。transformers.js v4.3.2 的 wasm 预加载
+器(`KM→sk`)会尝试把 wasm 存入 Cache API,但 Cache API 规范只接受 http(s)
+请求——`cache.put()` 必然抛 TypeError。加载本身不受影响(fetch 成功),纯告警。
+
+复现方法(在可读控制台的 options 页):`import(csc-engine.js)` 后用
+transformers 加载任意小模型触发 InferenceSession 创建 → 警告逐字复现。
+
+处置:`env.useWasmCache = false`(csc-engine.js)——跳过预加载路径,wasm 由
+ORT 直接从扩展 URL 加载;本地文件无需缓存。实测同步骤复现零告警、模型加载
+与会话创建正常。模型文件(http/https)的缓存不受影响(`useBrowserCache`
+保持默认,且纠错模型用的是自管的 crostivoice-csc-v1 缓存)。
+
 ## 未做(明确的非目标)
 
 - 逐句提交、会话保活(Gboard/Apple 听写模型):会牺牲神经标点的跨句上下文,

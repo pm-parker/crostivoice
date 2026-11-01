@@ -10,6 +10,11 @@ import {
 
 const V = (f) => new URL(`./vendor/${f}`, import.meta.url).toString();
 env.allowLocalModels = false;
+// wasm 是扩展自带文件(chrome-extension://),Cache API 按规范只接受 http(s)
+// 请求,transformers.js 的 wasm 预缓存必然抛 "Request scheme 'chrome-extension'
+// is unsupported"(实测复现)。本地文件无需缓存,关掉预加载路径,wasm 由 ORT
+// 直接从扩展 URL 加载。
+env.useWasmCache = false;
 env.backends.onnx.wasm.wasmPaths = {
   mjs: V("ort-wasm-simd-threaded.asyncify.mjs"),
   wasm: V("ort-wasm-simd-threaded.asyncify.wasm"),
