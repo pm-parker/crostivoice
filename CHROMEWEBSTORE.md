@@ -1,6 +1,6 @@
 # Chrome Web Store Listing — CrostiVoice 语音输入
 
-> Last Updated: 2026-11-01
+> Last Updated: 2026-11-01(发版 v0.11.0)
 
 ## Store Listing
 
