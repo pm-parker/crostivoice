@@ -62,7 +62,7 @@ def ss_polygon(d, pts, fill):
 
 # ════════════════════════ hero 横幅 ════════════════════════
 def make_hero(t, path):
-    W, H = 1200, 320
+    W, H = 1200, 360
     img = Image.new("RGB", (W, H), t["bg"])
     d = ImageDraw.Draw(img)
     # 微弱点阵(每 28px 一颗 1px 点,几乎不可见,提供质感)
