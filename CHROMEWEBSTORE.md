@@ -43,7 +43,7 @@ Productivity(生产力工具)
 
 | Asset | Dimensions | Status | Filename |
 |-------|-----------|--------|----------|
-| Store Icon [REQUIRED] | 128×128 PNG | ✅ Ready | icons/icon-128.png |
+| Store Icon [REQUIRED] | 128×128 PNG | ✅ Ready(几何麦克风 v3 渐变设计) | icons/icon-128.png |
 | Screenshot 1 [REQUIRED] | 1280×800 | ✅ Ready | screenshots/02-listening.jpg(听写浮层) |
 | Screenshot 2 [RECOMMENDED] | 1280×800 | ✅ Ready | screenshots/01-settings.jpg(设置页/模型状态) |
 | Screenshot 3 [RECOMMENDED] | 1280×800 | ✅ Ready | screenshots/03-dictionary.jpg(热词词典) |
