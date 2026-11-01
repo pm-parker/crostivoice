@@ -75,19 +75,20 @@
     .pill {
       display: flex; align-items: center; gap: 10px;
       max-width: min(560px, 86vw);
-      background: #101828; color: #fff; border-radius: 999px;
+      background: #1d2939; color: #ffffff; border-radius: 999px;
+      border: 1px solid rgba(255,255,255,.22);
       padding: 10px 18px; font-size: 14px; line-height: 1.45;
-      box-shadow: 0 8px 28px rgba(0,0,0,.35);
+      box-shadow: 0 8px 28px rgba(0,0,0,.55), 0 0 0 1px rgba(0,0,0,.35);
       animation: rise .16s ease-out;
     }
     .dot { width: 9px; height: 9px; border-radius: 50%; background: #ff5252; flex: none; animation: pulse 1.1s infinite; }
-    .txt { overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; word-break: break-word; min-width: 40px; }
-    .txt:empty::before { content: "聆听中…"; color: #9aa4b2; }
+    .txt { color: #ffffff; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; word-break: break-word; min-width: 40px; }
+    .txt:empty::before { content: "聆听中…"; color: #b8c0cc; }
     @keyframes pulse { 50% { opacity: .35; } }
     @keyframes spin { to { transform: rotate(1turn); } }
     @keyframes rise { from { transform: translateY(8px); opacity: 0; } }
     .hint {
-      background: #7a2b0e; color: #fff; border-radius: 10px;
+      background: #7a2b0e; color: #ffffff; border: 1px solid rgba(255,255,255,.2); border-radius: 10px;
       padding: 10px 16px; font-size: 13px; animation: rise .16s ease-out;
       pointer-events: auto;
       font-family: system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
