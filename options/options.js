@@ -324,9 +324,21 @@ async function refreshBuiltinNote() {
   const localPart = localReady
     ? "本地标点/纠错模型已就绪并生效。"
     : "本地模型未安装,可在上方下载。";
+  // Chrome 内置 AI 只 attest [en/ja/es/de/fr] 输出(与 background.js 的
+  // LM_SUPPORTED_OUTPUT 同步维护)。未 attest 语言直接静态说明,绝不调用
+  // API——裸调用 availability() 正是扩展页 output-language 错误的来源。
+  const { language } = await chrome.storage.local.get("language");
+  const base = String(language || "zh-CN").toLowerCase().split(/[-_]/)[0];
+  if (!["en", "ja", "es", "de", "fr"].includes(base)) {
+    note.textContent = `当前识别语言(${base === "zh" ? "中文" : base})暂不在 Chrome 内置 AI 的输出支持列表(英/日/西/德/法),深度整理自动跳过。${localPart}`;
+    return;
+  }
   if ("LanguageModel" in self) {
     try {
-      const a = await LanguageModel.availability();
+      const a = await LanguageModel.availability({
+        expectedInputs: [{ type: "text", languages: ["en", base] }],
+        expectedOutputs: [{ type: "text", languages: [base] }],
+      });
       note.textContent =
         a === "available"
           ? `Chrome 内置 AI 可用,深度整理将自动生效。${localPart}`

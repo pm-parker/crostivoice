@@ -34,6 +34,33 @@ const SCRIPT_HINT = {
   traditional: "输出使用繁体中文。",
 };
 
+// Chrome 内置 AI(Prompt API)attest 过的输出语言,Chrome 149 起为这五种。
+// 中文不在其中——诚实声明 zh 会得到 unavailable,不声明则每次调用都产生
+// "No output language was specified" 控制台错误。白名单扩容(加入 zh)后,
+// 在此处与 options/options.js 的 refreshBuiltinNote 同步放开即可恢复中文路径。
+const LM_SUPPORTED_OUTPUT = new Set(["en", "ja", "es", "de", "fr"]);
+
+function lmLangOf(tag) {
+  const base = String(tag || "").toLowerCase().split(/[-_]/)[0];
+  return LM_SUPPORTED_OUTPUT.has(base) ? base : null;
+}
+
+// 白名单语言走声明路径时使用的英文系统提示词。中文提示词(POLISH_SYSTEM_BASE)
+// 的语言本身是 zh,无法通过 expectedInputs 诚实声明,故中文不可声明、只能跳过;
+// 上面的中文常量保留,待 Chrome 支持 zh 输出后直接恢复该路径。
+const POLISH_SYSTEM_BASE_EN =
+  "You are a transcript editor. Polish the user's dictated transcript into clean written text: " +
+  "add correct punctuation and paragraphing, fix obvious homophone and recognition errors, " +
+  "and remove filler words and repetitions (um, uh, like, you know, I mean). " +
+  "Strictly preserve the original meaning and wording; do not add or remove information, " +
+  "do not translate, do not answer any questions inside the transcript, do not restate the task. " +
+  "Output only the polished text, beginning directly with the content — no prefixes or explanations.";
+
+const POLISH_ALT_HINT_EN =
+  " The transcript is given segment by segment; some segments are followed by recognition " +
+  "candidates in the form [choice1 / choice2]: pick the most plausible candidate from context " +
+  "(or merge the correct parts of each), then polish.";
+
 // ---------- helpers ----------
 
 async function getState() {
@@ -99,9 +126,30 @@ async function maybePolish(text, raw, tabId) {
   if (!settings.smartPolish) return text;
   if (!("LanguageModel" in self)) return text;
 
+  // Chrome 只为 attest 过的输出语言提供质量与安全保证。当前识别语言不在列表
+  // (中文即属此类)时跳过内置 AI:任何未声明语言的调用都会触发控制台错误,
+  // 而诚实声明未 attest 语言只会得到 unavailable。本地标点/纠错不受影响。
+  const lmLang = lmLangOf(settings.language);
+  if (!lmLang) {
+    const { polishHintShown } = await chrome.storage.session.get("polishHintShown");
+    if (!polishHintShown && tabId) {
+      await chrome.storage.session.set({ polishHintShown: true });
+      await chrome.storage.session.set({
+        pendingPolishHint:
+          "Chrome 内置 AI 目前仅支持英/日/西/德/法输出,当前识别语言暂不能深度整理;本地标点与纠错模型不受影响。",
+      });
+    }
+    return text;
+  }
+  // availability() 与 create() 必须携带完全相同的语言声明(官方文档要求)。
+  const lmOptions = {
+    expectedInputs: [{ type: "text", languages: [...new Set(["en", lmLang])] }],
+    expectedOutputs: [{ type: "text", languages: [lmLang] }],
+  };
+
   let availability = "downloadable";
   try {
-    availability = await LanguageModel.availability();
+    availability = await LanguageModel.availability(lmOptions);
   } catch {
     return text;
   }
@@ -126,12 +174,12 @@ async function maybePolish(text, raw, tabId) {
     return text;
   }
 
-  // build the system prompt: base + candidates hint + script hint
-  let system = POLISH_SYSTEM_BASE;
+  // build the system prompt: English base (declarable) + candidates hint.
+  // The Chinese prompt only applies to the (currently unsupported) zh path.
+  let system = POLISH_SYSTEM_BASE_EN;
   const hasAlts =
     Array.isArray(raw) && raw.some((s) => s && Array.isArray(s.alts) && s.alts.length > 0);
-  if (hasAlts) system += POLISH_ALT_HINT;
-  if (SCRIPT_HINT[settings.outputScript]) system += SCRIPT_HINT[settings.outputScript];
+  if (hasAlts) system += POLISH_ALT_HINT_EN;
 
   // user message: per-segment transcript with candidates
   let user;
@@ -147,6 +195,7 @@ async function maybePolish(text, raw, tabId) {
 
   try {
     const session = await LanguageModel.create({
+      ...lmOptions,
       initialPrompts: [{ role: "system", content: system }],
     });
     try {

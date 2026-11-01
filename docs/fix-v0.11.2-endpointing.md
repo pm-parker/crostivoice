@@ -101,6 +101,32 @@ permissions`。排查结论:HF 可选权限从 v0.10.0 起就是死代码——`
 `optional_host_permissions`(仅 HF 四域)并恢复授权门——那时它们不再与
 host_permissions 冗余(已删),警告不会复现。
 
+## 内置 AI 调用合规(beta.3,2026-11-02)
+
+扩展页报 `No output language was specified in a LanguageModel API request...`
+(来源:options 页的裸 `LanguageModel.availability()`,以及开启深度整理后
+maybePolish 的裸 `create()`)。
+
+对照实验(在带 LanguageModel 的 Chrome 里)钉死三条:
+
+1. 裸调用 → 精确复现该警告;
+2. 声明 `en` 调用 → 无语言警告,路径干净;
+3. **声明 `zh` → API 直接拒绝**("Unsupported LanguageModel API languages
+   were specified, and the request was aborted")——中文无法走声明路径,
+   跳过不是选择而是强制。
+
+处置:
+
+- 三处调用(options 探测、availability、create)统一携带
+  `expectedInputs/expectedOutputs` 声明,且两处选项严格一致(官方要求);
+- 白名单语言(en/ja/es/de/fr,与 Chrome 149 的 attest 列表同步,常量
+  `LM_SUPPORTED_OUTPUT`)使用英文系统提示词——中文提示词自身语言即 zh,
+  无法被诚实声明,故中文路径保留常量、暂不可达;
+- 中文/韩文等未 attest 语言:零 API 调用,设置页静态说明 + 每浏览器会话
+  一次的听写提示(复用 pendingPolishHint 机制),本地标点/纠错不受影响;
+- Chrome 白名单加入 zh 后:更新 `LM_SUPPORTED_OUTPUT`(background.js 与
+  options.js 两处)并恢复中文系统提示词路径即可。
+
 ## 未做(明确的非目标)
 
 - 逐句提交、会话保活(Gboard/Apple 听写模型):会牺牲神经标点的跨句上下文,
