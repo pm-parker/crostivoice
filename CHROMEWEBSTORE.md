@@ -1,6 +1,6 @@
 # Chrome Web Store Listing — CrostiVoice 语音输入
 
-> Last Updated: 2026-11-01(发版 v0.11.0)
+> Last Updated: 2026-11-02(发版 v0.11.2)
 
 ## Store Listing
 
@@ -104,7 +104,8 @@ Productivity(生产力工具)
 
 ## 提交记录
 
-- **2026-11-01**: v0.10.1 已提交 Chrome Web Store 审核(开发者后台)。状态:审核中。审核通过后此表记录上架 URL。
+- **2026-11-01**: v0.10.1 已提交 Chrome Web Store 审核(开发者后台)。状态:审核中。
+- **2026-11-02**: v0.11.2 正式版已在 Gitea/GitHub 发布(tag `v0.11.2`,含 beta.1~3 全部修复)。**商店暂不动作**(用户决定):等 v0.10.1 审核结果;若通过,随后以 0.11.2 作为更新提交(注意:0.11.2 新增 clipboardWrite 权限,更新提交会触发用户重新授权提示,理由见权限表);若被拒,直接重提 0.11.2。
 
 ## Publishing Readiness
 
