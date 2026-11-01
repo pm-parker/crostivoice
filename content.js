@@ -9,6 +9,32 @@
 
   let focusedEditable = null;
 
+  // 页面上下文词袋:标题(权重2)+ 焦点输入框已有文字(权重3),
+  // CJK 连续段 2-8 字 / 拉丁词元 2-20 位,取加权 top 20。
+  function contextTerms() {
+    const bag = new Map();
+    const add = (text, weight) => {
+      if (!text) return;
+      const t = String(text).slice(0, 3000);
+      for (const m of t.matchAll(/[\u4e00-\u9fff]{2,8}|[A-Za-z][A-Za-z0-9_-]{1,19}/g)) {
+        const term = m[0];
+        bag.set(term, (bag.get(term) || 0) + weight);
+      }
+    };
+    try {
+      add(document.title, 2);
+      const el = focusedEditable || document.activeElement;
+      if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) add(el.value, 3);
+      else if (el && el.isContentEditable) add(el.textContent, 3);
+    } catch {
+      /* 上下文是增益,不是依赖 */
+    }
+    return [...bag.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 20)
+      .map(([term]) => term);
+  }
+
   function isEditable(el) {
     if (!el) return false;
     if (el instanceof HTMLInputElement) return !["checkbox", "radio", "file", "button", "submit", "reset", "hidden", "image"].includes(el.type);
@@ -233,6 +259,10 @@
           // No host_permissions by design: the page's own URL is the only
           // reliable source (tabs.Tab.url is redacted without them).
           url: location.href,
+          // 页面上下文词袋(搜索引擎"会话消歧"的本地版):标题 + 焦点输入框
+          // 已有文字中的多字词,喂给识别器偏置与候选融合。只在本机使用,
+          // 不上传。CJK 取 2-8 字连续段,拉丁取 2-20 位词元。
+          context: contextTerms(),
         });
         break;
       }

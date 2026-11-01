@@ -244,6 +244,7 @@ async function startVoice() {
     dictionary: settings.dictionary,
     punctStyle: settings.punctStyle,
     engine: settings.punctEngine,
+    context: Array.isArray(ctx.context) ? ctx.context : [],
   });
 
   await setState("dictating");

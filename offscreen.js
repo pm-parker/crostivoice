@@ -223,6 +223,34 @@ function escapeRe(s) {
 
 let dictRules = []; // [[RegExp, replacement], ...] — post-hoc 替换
 let dictPairs = []; // [[from, to]] — 候选融合打分用纯字符串
+let pageContext = []; // 页面上下文词袋(标题/输入框已有文字),识别偏置 + 融合信号
+let freqRank = null; // Map<词, 名次>,来自 vendor/freq-zh60k.txt(懒加载,失败容忍)
+let freqLoading = null;
+
+// 中文词频表:候选重排的统计基础信号(IME 词频解码的本地版)。
+// jieba dict.txt(MIT)按频降序前 6 万词,行号即名次。加载失败(网络/文件
+// 缺失)时 freq 分量置零,融合退化为词典+上下文,不影响主流程。
+function ensureFreqTable() {
+  if (freqRank || freqLoading) return freqLoading;
+  freqLoading = (async () => {
+    try {
+      const res = await fetch(new URL("./vendor/freq-zh60k.txt", import.meta.url));
+      if (!res.ok) return;
+      const lines = (await res.text()).split("\n");
+      const map = new Map();
+      for (let i = 0; i < lines.length; i++) {
+        const w = lines[i].trim();
+        if (!w || w.startsWith("#")) continue;
+        map.set(w, map.size + 1); // 名次 = 表内序号
+      }
+      if (map.size > 1000) freqRank = map;
+    } catch {
+      /* 统计信号是增益,不是依赖 */
+    }
+    return freqRank;
+  })();
+  return freqLoading;
+}
 
 function setDictionary(list) {
   const entries = (Array.isArray(list) ? list : []).filter((e) => e && e.from && e.to);
@@ -235,10 +263,11 @@ function applyDict(s) {
   return s;
 }
 
-// ---------- candidate fusion (local, dictionary-vote) ----------
-// 识别器每句最多给 3 个候选,默认取第一个。当其他候选与词典的契合度
-// 严格更高时(命中目标词 / 避开已知错形),换成更优候选。仅词典驱动、
-// 平票不动、无词典时空操作 —— 不引入任何概率性改写。
+// ---------- candidate fusion (local: dictionary > context > frequency) ----------
+// 识别器每句最多给 3 个候选,默认取第一个。三级信号按优先级比较:
+//   词典(用户意图,±2/条)> 页面上下文(+1/条,搜索引擎"会话消歧"的本地版)
+//   > 词频覆盖(IME 式统计信号,需显著优势才换)。
+// 平票不动、无信号时空操作 —— 不引入概率性改写。
 function dictScore(text) {
   let s = 0;
   for (const [from, to] of dictPairs) {
@@ -248,17 +277,63 @@ function dictScore(text) {
   return s;
 }
 
+function contextVote(text) {
+  let s = 0;
+  for (const t of pageContext) {
+    if (t && t.length >= 2 && text.includes(t)) s += 1;
+  }
+  return s;
+}
+
+// 贪心最长匹配的词频覆盖分:覆盖率主导 + 长词加权(输入法式打分)。
+// 值域约 [0,3],仅在候选间相对比较时有意义。
+function freqScore(text) {
+  if (!freqRank || !text) return 0;
+  const n = text.length;
+  let i = 0;
+  let covered = 0;
+  let bonus = 0;
+  while (i < n) {
+    let len = Math.min(12, n - i);
+    let hit = 0;
+    for (; len >= 2; len--) {
+      if (freqRank.has(text.slice(i, i + len))) {
+        hit = len;
+        break;
+      }
+    }
+    if (hit) {
+      covered += hit;
+      bonus += 1 + Math.log2(hit);
+      i += hit;
+    } else {
+      i += 1;
+    }
+  }
+  return (covered / n) * 2 + (covered > 0 ? bonus / covered : 0);
+}
+
+function candidateScore(text) {
+  return { dict: dictScore(text), ctx: contextVote(text), freq: freqScore(text) };
+}
+
+// 频率分量需要显著优势才允许单独触发换选(统计噪声防护)
+const FREQ_MARGIN = 0.35;
+
+function betterCandidate(alt, primary) {
+  const a = candidateScore(alt);
+  const p = candidateScore(primary);
+  if (a.dict !== p.dict) return a.dict > p.dict;
+  if (a.ctx !== p.ctx) return a.ctx > p.ctx;
+  return a.freq > p.freq + FREQ_MARGIN;
+}
+
 function fuseCandidates(list) {
   return list.map((seg) => {
     if (!seg.alts || seg.alts.length === 0) return seg;
     let best = seg.primary;
-    let bestScore = dictScore(seg.primary);
     for (const alt of seg.alts) {
-      const sc = dictScore(alt);
-      if (sc > bestScore) {
-        best = alt;
-        bestScore = sc;
-      }
+      if (betterCandidate(alt, best)) best = alt;
     }
     return best === seg.primary ? seg : { ...seg, primary: best };
   });
@@ -424,7 +499,7 @@ function renderStyle(text) {
 
 // ---------- recognition ----------
 
-function start({ lang, dictionary, punctStyle: style, engine }) {
+function start({ lang, dictionary, punctStyle: style, engine, context }) {
   if (!SR) {
     report({ type: "ASR_ERROR", code: "unsupported", message: "此浏览器不支持语音识别" });
     return;
@@ -435,6 +510,11 @@ function start({ lang, dictionary, punctStyle: style, engine }) {
   finalizing = false;
   finalReported = false;
   setDictionary(dictionary);
+  pageContext = (Array.isArray(context) ? context : [])
+    .map((t) => String(t))
+    .filter((t) => t.length >= 2 && t.length <= 20)
+    .slice(0, 20);
+  ensureFreqTable(); // 懒加载一次,失败容忍
   if (style) punctStyle = style;
   if (engine) engineChoice = engine;
   ensureNnEngine(); // from cache only — never downloads implicitly
@@ -445,14 +525,14 @@ function start({ lang, dictionary, punctStyle: style, engine }) {
   recognition.interimResults = true;
   recognition.maxAlternatives = 3; // candidates for local fusion (and AI re-ranking if ever revived)
 
-  // 识别器级热词偏置(Chrome 156+/SpeechRecognitionPhrase):把词典的
-  // 目标词条喂给识别器,让解码阶段就偏向领域词汇——比"识别错了再替换"
+  // 识别器级热词偏置(Chrome 156+/SpeechRecognitionPhrase):词典目标词 +
+  // 页面上下文词喂给识别器,让解码阶段就偏向领域词汇——比"识别错了再替换"
   // 更根本。旧浏览器无此 API 时静默跳过,post-hoc 替换与候选融合不受影响。
   try {
     if ("SpeechRecognitionPhrase" in self && recognition.phrases) {
-      const targets = [...new Set(dictPairs.map(([, to]) => to))]
+      const targets = [...new Set([...dictPairs.map(([, to]) => to), ...pageContext])]
         .filter((t) => t.length >= 2 && t.length <= 20)
-        .slice(0, 100);
+        .slice(0, 120);
       for (const t of targets) {
         recognition.phrases.push(new SpeechRecognitionPhrase(t));
       }
