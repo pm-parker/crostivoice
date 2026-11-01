@@ -97,7 +97,7 @@ async function ensureOffscreen() {
   });
 }
 
-async function pushHistory(text, url) {
+async function pushHistory(text, url, alts = null) {
   const { history = [] } = await chrome.storage.local.get("history");
   let host = "";
   try {
@@ -105,7 +105,11 @@ async function pushHistory(text, url) {
   } catch {
     /* noop */
   }
-  history.unshift({ text, host, ts: Date.now() });
+  // alts:该次听写的识别候选快照(每段最多3个),仅存本机——
+  // 出问题时可据此归因(识别器没给对候选 vs 融合选错)
+  const entry = { text, host, ts: Date.now() };
+  if (Array.isArray(alts) && alts.length) entry.alts = alts;
+  history.unshift(entry);
   await chrome.storage.local.set({ history: history.slice(0, 50) });
 }
 
@@ -276,7 +280,11 @@ async function finishWithText(text, raw) {
     // HISTORY IS THE BACKSTOP: always recorded, even when the tab is gone or
     // the content script is unreachable. A dictation must never vanish.
     // Host comes from the page itself (content script); no host permissions.
-    await pushHistory(polished, voiceUrl);
+    const altsSnapshot =
+      Array.isArray(raw) && raw.length
+        ? raw.slice(0, 6).map((s) => [s.primary, ...(s.alts || [])].slice(0, 3))
+        : null;
+    await pushHistory(polished, voiceUrl, altsSnapshot);
   }
 
   await setState("idle");

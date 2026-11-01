@@ -39,6 +39,11 @@ const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 // results keep streaming). Only onresult is a trustworthy activity signal.
 const WAIT_FIRST_MS = 9000;
 const GAP_MS = 1600;
+// 优雅收尾窗口:gap 触发后先 recognition.stop()(规范:冲刷已收音频的
+// pending final),在窗口内继续接收 final/interim——修复"尾字丢失"
+//(实测:说完"事件"停顿,1.6s 计时器在 final 到达前冻结,"件"被截)。
+// onend 或窗口到期即提交。
+const GRACE_MS = 900;
 const MAX_MS = 120000;
 
 let recognition = null;
@@ -51,6 +56,9 @@ let gapTimer = null;
 let maxTimer = null;
 let finalizing = false;
 let finalReported = false; // one ASR_FINAL per session, however stop() is reached
+let finishing = false; // 优雅收尾窗口进行中(gap 已触发,等识别器冲刷尾巴)
+let graceTimer = null;
+let graceSettle = null; // 窗口结束回调(onend 提前结束,否则到期结束)
 let punctStyle = "cn"; // 'cn' | 'en'
 let engineChoice = "nn"; // 'nn' (neural, local CT-Transformer) | 'rules'
 let nnLoading = false;
@@ -174,8 +182,8 @@ async function ensureCscEngine() {
 // ---------- session clocks ----------
 
 function clearClocks() {
-  for (const t of [waitTimer, gapTimer, maxTimer]) if (t) clearTimeout(t);
-  waitTimer = gapTimer = maxTimer = null;
+  for (const t of [waitTimer, gapTimer, maxTimer, graceTimer]) if (t) clearTimeout(t);
+  waitTimer = gapTimer = maxTimer = graceTimer = null;
 }
 
 // Ceiling for "still waiting for the first transcript". Re-armed when the VAD
@@ -509,6 +517,8 @@ function start({ lang, dictionary, punctStyle: style, engine, context }) {
   firstResultSeen = false;
   finalizing = false;
   finalReported = false;
+  finishing = false;
+  graceSettle = null;
   setDictionary(dictionary);
   pageContext = (Array.isArray(context) ? context : [])
     .map((t) => String(t))
@@ -593,6 +603,11 @@ function start({ lang, dictionary, punctStyle: style, engine, context }) {
   };
 
   recognition.onend = () => {
+    // 优雅收尾中:识别器确认结束,冲刷的 pending final 已在手,提前提交
+    if (finishing) {
+      if (graceSettle) graceSettle();
+      return;
+    }
     // Chrome stops on its own after a pause even in continuous mode. Restarting
     // is normal; the arming/gap clocks — not onend — decide when we are done.
     if (active && !finalizing && recognition) {
@@ -644,10 +659,39 @@ function smoothPeriods(text) {
   return text.replace(/\u3002(?=[^\u3002\uFF0C\u3001\uFF1F]{1,3}[\uFF0C\u3001\uFF1F\u3002])/g, "\uFF0C");
 }
 
-async function stop() {
+// 结束入口:所有路径(gap/快捷键/超时)先走优雅收尾——recognition.stop()
+// 按规范冲刷已收音频的 pending final,GRACE_MS 窗口内继续接收尾字,
+// onend 或到期后提交。修复"尾字丢失"(实测:说完"事件"停顿,1.6s 计时
+// 器在 final 到达前冻结,"件"被截)。
+function stop(force = false) {
+  if (finalizing || finalReported) return;
+  // 强制路径(会话切换):跳过宽限窗立即提交,旧会话文字不能丢
+  if (force || !recognition || !active) {
+    finalizeNow();
+    return;
+  }
+  if (finishing) return;
+  finishing = true;
+  let settled = false;
+  graceSettle = () => {
+    if (settled) return;
+    settled = true;
+    graceSettle = null;
+    finalizeNow();
+  };
+  try {
+    recognition.stop(); // 冲刷尾巴;onend 提前结束等待
+  } catch {
+    /* 已停止 */
+  }
+  graceTimer = setTimeout(graceSettle, GRACE_MS);
+}
+
+async function finalizeNow() {
   if (finalizing || finalReported) return; // idempotent per session
   finalizing = true;
   finalReported = true; // close the window before any await
+  finishing = false;
 
   // Freeze first, snapshot second. No await in between, so the last result can
   // not slip in after the snapshot and get lost.
@@ -700,7 +744,8 @@ async function stop() {
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === "ASR_START") {
-    if (active) stop();
+    // 会话切换:旧会话(收尾中或活跃)强制立即提交,再开新会话
+    if (active || finishing) stop(true);
     start(message);
     sendResponse({ ok: true });
   } else if (message?.type === "ASR_STOP") {
