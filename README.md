@@ -1,7 +1,7 @@
 <div align="center">
 
 <a name="zh-cn"></a>
-<img src="docs/assets/hero-dark.png" alt="CrostiVoice — ChromeOS 语音输入,说完即上屏" width="100%">
+<img src="docs/assets/hero.png" alt="CrostiVoice — ChromeOS 语音输入,说完即上屏" width="100%">
 
 [![Release](https://img.shields.io/github/v/release/pm-parker/crostivoice?style=flat-square&label=%E7%89%88%E6%9C%AC)](https://github.com/pm-parker/crostivoice/releases) [![License](https://img.shields.io/badge/License-MIT-34d399?style=flat-square)](LICENSE) [![Platform](https://img.shields.io/badge/ChromeOS%20%7C%20Chrome-116%2B-4d8dfd?style=flat-square)](#系统要求) [![Privacy](https://img.shields.io/badge/%E9%9A%90%E7%A7%81-%E9%9B%B6%E4%B8%8A%E4%BC%A0-34d399?style=flat-square)](https://pmparker.net/crostivoice/privacy/)
 
@@ -41,10 +41,7 @@ ChromeOS 上打中文依赖系统拼音,长句输入慢、纠错繁琐。CrostiV
 
 <div align="center">
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/compare-dark.png">
-  <img src="docs/assets/compare-light.png" alt="CrostiVoice 与系统语音输入、云端听写、浏览器扩展的 8 项对比" width="88%">
-</picture>
+<img src="docs/assets/compare.png" alt="CrostiVoice 与系统语音输入、云端听写、浏览器扩展的 8 项对比" width="88%">
 
 **[完整 11 项对比 →](https://pmparker.net/crostivoice/vs/)**
 
@@ -158,7 +155,7 @@ MIT
 <div align="center">
 
 <a name="english"></a>
-<img src="docs/assets/hero-dark.png" alt="CrostiVoice — Voice typing for ChromeOS" width="100%">
+<img src="docs/assets/hero.png" alt="CrostiVoice — Voice typing for ChromeOS" width="100%">
 
 **Tap a shortcut, speak — on-device AI punctuates, corrects, and inserts.**
 
@@ -182,10 +179,7 @@ Typing Chinese on ChromeOS means pinyin for everything — slow for long sentenc
 
 ## Compare
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/compare-dark.png">
-  <img src="docs/assets/compare-light.png" alt="CrostiVoice vs system voice input, cloud dictation, browser extensions" width="88%">
-</picture>
+<img src="docs/assets/compare.png" alt="CrostiVoice vs system voice input, cloud dictation, browser extensions" width="88%">
 
 **[Full 11-point comparison →](https://pmparker.net/crostivoice/vs/)**
 

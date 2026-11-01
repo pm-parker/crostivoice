@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """CrostiVoice README 视觉资产生成器 — GitHub 双主题适配。
 
-产出(docs/assets/):
-  hero-dark.png / hero-light.png   首图横幅(产品名 + 一句话 + 特性徽章)
-  pipeline.png                     三层文本管线图(暗色固定,GitHub 深浅皆可读)
-  compare-dark.png / compare-light.png  四方案对比表
-用法: python3 make_readme_assets.py [--light-only]
+产出(docs/assets/,统一浅色风格):
+  hero.png      首图横幅(产品名 + 一句话 + 特性徽章)
+  pipeline.png  三层文本管线图
+  compare.png   四方案对比表
+用法: python3 make_readme_assets.py
 """
 import os, sys
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
@@ -268,11 +268,8 @@ def make_compare(t, path):
     print("compare →", path)
 
 if __name__ == "__main__":
-    light_too = "--light-only" not in sys.argv and True
-    make_hero(THEMES["dark"], os.path.join(OUT, "hero-dark.png"))
-    make_pipeline(THEMES["dark"], os.path.join(OUT, "pipeline.png"))
-    make_compare(THEMES["dark"], os.path.join(OUT, "compare-dark.png"))
-    if light_too:
-        make_hero(THEMES["light"], os.path.join(OUT, "hero-light.png"))
-        make_compare(THEMES["light"], os.path.join(OUT, "compare-light.png"))
+    t = THEMES["light"]
+    make_hero(t, os.path.join(OUT, "hero.png"))
+    make_pipeline(t, os.path.join(OUT, "pipeline.png"))
+    make_compare(t, os.path.join(OUT, "compare.png"))
     print("DONE")
