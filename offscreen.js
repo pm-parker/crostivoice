@@ -20,15 +20,41 @@ import {
 } from "./csc-engine.js";
 
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-const SILENCE_MS = 1600; // auto-finish after this much silence
+
+// ---------- timing ----------
+// Two different questions need two different clocks (the same split Android's
+// endpointer exposes as POSSIBLY_COMPLETE vs COMPLETE silence):
+//   WAIT_FIRST_MS — the shortcut was pressed but no transcript has arrived
+//            yet. Deliberately generous: a slow start (the user thinking, or
+//            the recognizer's first interim still in flight) must never kill
+//            the session. The old code reused one 1.6 s timer here, so a user
+//            who paused before the first word lost the whole session. VAD
+//            events (soundstart/speechstart) re-arm this clock for extra
+//            grace, but only a real transcript switches to the gap clock.
+//   GAP_MS — transcript already flowed and the last result is this old:
+//            the "停顿自动断句上屏" boundary.
+//   MAX_MS — absolute cap so a wedged microphone can never record forever.
+// NOTE: Chrome in continuous mode does not reliably fire soundend/speechend,
+// so nothing may gate on those events (measured: they never arrive while
+// results keep streaming). Only onresult is a trustworthy activity signal.
+const WAIT_FIRST_MS = 9000;
+const GAP_MS = 1600;
+const MAX_MS = 120000;
+
 let recognition = null;
 let active = false;
 let segments = []; // finalized chunks: { primary, alts: string[] }
+let lastInterim = ""; // newest non-final transcript — never dropped on finish
+let firstResultSeen = false; // a real transcript arrived (arming is over)
+let waitTimer = null; // first-transcript ceiling (re-armed by VAD events)
+let gapTimer = null;
+let maxTimer = null;
+let finalizing = false;
+let finalReported = false; // one ASR_FINAL per session, however stop() is reached
 let dictRules = []; // [[RegExp, replacement], ...]
 let punctStyle = "cn"; // 'cn' | 'en'
 let engineChoice = "nn"; // 'nn' (neural, local CT-Transformer) | 'rules'
 let nnLoading = false;
-let silenceTimer = null;
 
 function report(msg) {
   return chrome.runtime.sendMessage(msg).catch(() => {});
@@ -146,14 +172,48 @@ async function ensureCscEngine() {
   }
 }
 
-function resetSilenceTimer() {
-  if (silenceTimer) clearTimeout(silenceTimer);
-  if (active) {
-    silenceTimer = setTimeout(() => {
-      // user paused speaking (or never started) — auto-finish
+// ---------- session clocks ----------
+
+function clearClocks() {
+  for (const t of [waitTimer, gapTimer, maxTimer]) if (t) clearTimeout(t);
+  waitTimer = gapTimer = maxTimer = null;
+}
+
+// Ceiling for "still waiting for the first transcript". Re-armed when the VAD
+// reports sound/speech so that a late first interim is not punished.
+function armWaitTimer() {
+  if (!active || firstResultSeen) return;
+  if (waitTimer) clearTimeout(waitTimer);
+  waitTimer = setTimeout(() => {
+    waitTimer = null;
+    if (active && !firstResultSeen) {
+      // Nothing transcribed. stop() reports an empty ASR_FINAL, which is the
+      // one path that surfaces the "没听到内容" hint and returns to idle.
       stop();
-    }, SILENCE_MS);
+    }
+  }, WAIT_FIRST_MS);
+}
+
+// Only meaningful once a transcript exists: this is the sentence gap.
+function rearmGapTimer() {
+  if (!active || !firstResultSeen) return;
+  if (gapTimer) clearTimeout(gapTimer);
+  gapTimer = setTimeout(() => {
+    gapTimer = null;
+    if (active) stop();
+  }, GAP_MS);
+}
+
+// Transcript activity: retire the first-wait clock, restart the gap clock.
+function noteTranscriptActivity() {
+  if (!firstResultSeen) {
+    firstResultSeen = true;
+    if (waitTimer) {
+      clearTimeout(waitTimer);
+      waitTimer = null;
+    }
   }
+  rearmGapTimer();
 }
 
 // ---------- user dictionary ----------
@@ -283,6 +343,10 @@ function start({ lang, dictionary, punctStyle: style, engine }) {
     return;
   }
   segments = [];
+  lastInterim = "";
+  firstResultSeen = false;
+  finalizing = false;
+  finalReported = false;
   setDictionary(dictionary);
   if (style) punctStyle = style;
   if (engine) engineChoice = engine;
@@ -301,26 +365,54 @@ function start({ lang, dictionary, punctStyle: style, engine }) {
       if (r.isFinal) {
         const alts = [];
         for (let j = 1; j < r.length; j++) alts.push(r[j].transcript);
-        segments.push({ primary: r[0].transcript, alts });
+        const primary = r[0].transcript;
+        if (primary && primary.trim()) segments.push({ primary, alts });
+        lastInterim = ""; // this chunk is committed; stale partial no longer applies
       } else {
         interim += r[0].transcript;
       }
     }
+    if (interim) lastInterim = interim;
     const finalPart = punctuate(segments.map((s) => s.primary));
-    const live = (finalPart + interim).trim();
+    const live = (finalPart + lastInterim).trim();
     if (live || segments.length) report({ type: "ASR_INTERIM", text: live });
-    resetSilenceTimer(); // speech activity (final or interim) postpones auto-finish
+    noteTranscriptActivity();
+  };
+
+  // Chrome only reports speech/silence transitions through these events. A
+  // final result usually arrives after speechend, so the end event must not
+  // finish the session — it only (re)arms the gap clock.
+  recognition.onspeechstart = () => {
+    armWaitTimer(); // VAD says the user started: grant a fresh wait window
+  };
+  // Chrome in continuous mode never fires the sound/speech *end* events while
+  // results stream (measured), so these only ever re-arm clocks — nothing
+  // gates on a "still loud" flag.
+  recognition.onsoundstart = () => {
+    armWaitTimer();
+  };
+  recognition.onsoundend = () => {
+    rearmGapTimer();
+  };
+  recognition.onspeechend = () => {
+    rearmGapTimer();
+  };
+  recognition.onaudioend = () => {
+    rearmGapTimer();
   };
 
   recognition.onerror = (event) => {
+    // no-speech/aborted are routine: Chrome fires them on silence and on
+    // stop(). Only real failures are surfaced to the user.
     if (event.error === "no-speech" || event.error === "aborted") return;
     report({ type: "ASR_ERROR", code: event.error });
     cleanup();
   };
 
   recognition.onend = () => {
-    // Chrome stops on silence even in continuous mode — restart while held.
-    if (active && recognition) {
+    // Chrome stops on its own after a pause even in continuous mode. Restarting
+    // is normal; the arming/gap clocks — not onend — decide when we are done.
+    if (active && !finalizing && recognition) {
       try {
         recognition.start();
       } catch {
@@ -332,21 +424,28 @@ function start({ lang, dictionary, punctStyle: style, engine }) {
   try {
     recognition.start();
     active = true;
-    resetSilenceTimer(); // if the user never speaks, auto-finish too
+    clearClocks();
+    armWaitTimer(); // "did a transcript ever arrive" ceiling
+    maxTimer = setTimeout(() => {
+      maxTimer = null;
+      if (active) stop();
+    }, MAX_MS);
   } catch (err) {
     report({ type: "ASR_ERROR", code: "start-failed", message: String(err) });
   }
 }
 
+// Freeze the session. Runs synchronously so that no result can land between
+// "we decided to finish" and "the text is snapshotted": everything this session
+// produced is captured here, once.
 function cleanup() {
   active = false;
-  if (silenceTimer) {
-    clearTimeout(silenceTimer);
-    silenceTimer = null;
-  }
+  clearClocks();
   if (recognition) {
     try {
       recognition.onresult = recognition.onerror = recognition.onend = null;
+      recognition.onspeechstart = recognition.onsoundstart = recognition.onsoundend = null;
+      recognition.onspeechend = recognition.onaudioend = null;
       recognition.stop();
     } catch {
       /* noop */
@@ -363,8 +462,24 @@ function smoothPeriods(text) {
 }
 
 async function stop() {
-  // deep copy segments before cleanup for the final message
+  if (finalizing || finalReported) return; // idempotent per session
+  finalizing = true;
+  finalReported = true; // close the window before any await
+
+  // Freeze first, snapshot second. No await in between, so the last result can
+  // not slip in after the snapshot and get lost.
+  const interimLeft = lastInterim.trim();
   const raw = segments.map((s) => ({ primary: s.primary, alts: [...(s.alts || [])] }));
+  cleanup();
+
+  // A partial transcript is still the user's speech. Handlers are detached,
+  // so no late final can double-count it: commit it rather than drop it.
+  // This is what made text vanish mid-dictation when the pause timer fired
+  // before Chrome finalized the last sentence.
+  if (interimLeft) {
+    raw.push({ primary: interimLeft, alts: [] });
+  }
+
   let text;
   if (engineChoice === "nn" && isEngineReady()) {
     // neural path: dict-corrected, punctuation-free text → model adds punctuation
@@ -387,13 +502,13 @@ async function stop() {
       text = renderStyle(smoothPeriods(t)).trim();
     } catch (err) {
       console.warn("[cv] neural punct failed, using rules:", err);
-      text = renderStyle(punctuate(segments.map((s) => s.primary))).trim();
+      text = renderStyle(punctuate(raw.map((s) => s.primary))).trim();
     }
   } else {
     // rule path (instant, no model)
-    text = renderStyle(punctuate(segments.map((s) => s.primary))).trim();
+    text = renderStyle(punctuate(raw.map((s) => s.primary))).trim();
   }
-  cleanup();
+  finalizing = false;
   report({ type: "ASR_FINAL", text, raw });
 }
 

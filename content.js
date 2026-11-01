@@ -246,14 +246,30 @@
         break;
       }
       case "INSERT_TEXT": {
-        const el = focusedEditable || document.activeElement;
+        // focusedEditable may reference a node the page has since re-rendered
+        // away (SPA route change, virtual-DOM swap). Writing into a detached
+        // node updates nothing on screen and fails silently, so verify the
+        // node is still in the document and fall back to live focus otherwise.
+        let el = focusedEditable;
+        if (el && !el.isConnected) el = null;
+        if (!el) el = document.activeElement;
         if (isEditable(el)) insertAtCursor(el, message.text);
         else {
-          // No focused input — don't lose the user's speech: copy + tell them.
-          navigator.clipboard
-            .writeText(message.text)
-            .then(() => showHint("焦点不在输入框,文字已复制到剪贴板 📋"))
-            .catch(() => showHint("请先点击一个输入框再开始语音"));
+          // No focused input — don't lose the user's speech. clipboard.writeText
+          // can HANG forever in a content script without clipboardWrite (no
+          // rejection, no resolution), so race it: feedback must not depend on
+          // the clipboard settling. History (written by the service worker) is
+          // the honest fallback message.
+          const t = message.text;
+          Promise.race([
+            navigator.clipboard.writeText(t).then(() => "copied"),
+            new Promise((r) => setTimeout(() => r("no-clipboard"), 1200)),
+          ])
+            .then((outcome) => {
+              if (outcome === "copied") showHint("焦点不在输入框,文字已复制到剪贴板 📋");
+              else showHint("焦点不在输入框,文字已存入历史记录");
+            })
+            .catch(() => showHint("焦点不在输入框,文字已存入历史记录"));
         }
         break;
       }

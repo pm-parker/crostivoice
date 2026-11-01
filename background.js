@@ -242,16 +242,32 @@ async function finishWithText(text, raw) {
   let finalText = (text || "").trim();
   const tab = tabId ? await chrome.tabs.get(tabId).catch(() => null) : null;
 
-  if (finalText && tab) {
+  if (finalText) {
     // rule-punctuated text → optional built-in AI polish (with candidates) → insert
-    const polished = await maybePolish(finalText, raw, tab.id);
-    await sendToTab(tab.id, { type: "INSERT_TEXT", text: polished });
-    await pushHistory(polished, tab.url);
+    const polished = await maybePolish(finalText, raw, tab?.id);
+    if (tab) {
+      await sendToTab(tab.id, { type: "INSERT_TEXT", text: polished });
+    }
+    // HISTORY IS THE BACKSTOP: always recorded, even when the tab is gone or
+    // the content script is unreachable. A dictation must never vanish.
+    await pushHistory(polished, tab?.url);
   }
 
   await setState("idle");
   await badge("");
   if (tab) await sendToTab(tab.id, { type: "VOICE_STATE", state: "idle" });
+
+  if (!finalText) {
+    // Silent idle after a session that produced nothing is indistinguishable
+    // from a crash. Tell the user what happened instead.
+    if (tab) {
+      await sendToTab(tab.id, {
+        type: "VOICE_HINT",
+        message: "没有听到内容。请先点一下输入框,再按快捷键开始说话。",
+      });
+    }
+    return;
+  }
 
   // show a queued polish hint AFTER the idle transition (so it isn't unmounted)
   const { pendingPolishHint } = await chrome.storage.session.get("pendingPolishHint");
