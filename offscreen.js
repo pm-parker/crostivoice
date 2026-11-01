@@ -51,7 +51,6 @@ let gapTimer = null;
 let maxTimer = null;
 let finalizing = false;
 let finalReported = false; // one ASR_FINAL per session, however stop() is reached
-let dictRules = []; // [[RegExp, replacement], ...]
 let punctStyle = "cn"; // 'cn' | 'en'
 let engineChoice = "nn"; // 'nn' (neural, local CT-Transformer) | 'rules'
 let nnLoading = false;
@@ -222,15 +221,103 @@ function escapeRe(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+let dictRules = []; // [[RegExp, replacement], ...] — post-hoc 替换
+let dictPairs = []; // [[from, to]] — 候选融合打分用纯字符串
+
 function setDictionary(list) {
-  dictRules = (Array.isArray(list) ? list : [])
-    .filter((e) => e && e.from && e.to)
-    .map((e) => [new RegExp(escapeRe(e.from), "g"), e.to]);
+  const entries = (Array.isArray(list) ? list : []).filter((e) => e && e.from && e.to);
+  dictRules = entries.map((e) => [new RegExp(escapeRe(e.from), "g"), e.to]);
+  dictPairs = entries.map((e) => [String(e.from), String(e.to)]);
 }
 
 function applyDict(s) {
   for (const [re, to] of dictRules) s = s.replace(re, to);
   return s;
+}
+
+// ---------- candidate fusion (local, dictionary-vote) ----------
+// 识别器每句最多给 3 个候选,默认取第一个。当其他候选与词典的契合度
+// 严格更高时(命中目标词 / 避开已知错形),换成更优候选。仅词典驱动、
+// 平票不动、无词典时空操作 —— 不引入任何概率性改写。
+function dictScore(text) {
+  let s = 0;
+  for (const [from, to] of dictPairs) {
+    if (text.includes(from)) s -= 2; // 命中"已知错形"
+    if (text.includes(to)) s += 2; // 命中"目标词"
+  }
+  return s;
+}
+
+function fuseCandidates(list) {
+  return list.map((seg) => {
+    if (!seg.alts || seg.alts.length === 0) return seg;
+    let best = seg.primary;
+    let bestScore = dictScore(seg.primary);
+    for (const alt of seg.alts) {
+      const sc = dictScore(alt);
+      if (sc > bestScore) {
+        best = alt;
+        bestScore = sc;
+      }
+    }
+    return best === seg.primary ? seg : { ...seg, primary: best };
+  });
+}
+
+// ---------- local text organization ----------
+// 口癖清理 + 分段(纯本地、保守规则):
+// - 只删无歧义的语气填充词(嗯/呃/噢/喔/诶/唉,可叠用,须独立成词——
+//   前为句首或标点,后随可选的逗号/句号)。刻意不碰"那个/这个/就是":
+//   它们可作指示词或连词,机械删除会改坏句子;
+// - 分段:当前段满 3 句且 ≥60 字,或超长(≥120 字)时在句号后断段;
+// - 单行输入框(搜索框等)不支持换行,由 content script 剥掉分段符。
+const FILLER_RE = /(^|[。!?,;、\n])\s*(?:嗯|呃|噢|喔|诶|唉){1,3}\s*[,，。]?\s*/g;
+
+function defill(text) {
+  // 保留边界标点,丢弃填充词及其自带的逗号/句号
+  return text.replace(FILLER_RE, (m, boundary) => boundary);
+}
+
+function reflow(text) {
+  if (!/[。!?…]/.test(text)) return text;
+  // 以小句(含逗号边界)为计数单位,断段只落在小句之后;段尾若是逗号,
+  // 升格为句号——段落边界本来就意味着句子完结。
+  const clauses = text.split(/(?<=[。!?…,;、\n])/).filter((s) => s.trim());
+  if (clauses.length <= 3) return text;
+  let out = "";
+  let cl = 0;
+  let chars = 0;
+  for (const c of clauses) {
+    if (c.includes("\n")) {
+      // 用户口述的换行:分段计数重新开始
+      out += c;
+      cl = 0;
+      chars = 0;
+      continue;
+    }
+    const endsSentence = /[。!?…]/.test(c.slice(-1));
+    if (!endsSentence && !/[,,;]\s*$/.test(c)) {
+      out += c; // 不在断点上的小句(如顿号中间):只累计
+      cl += 1;
+      chars += c.length;
+      continue;
+    }
+    cl += 1;
+    chars += c.length;
+    const atBreak = (cl >= 3 && chars >= 60) || chars >= 120;
+    if (atBreak) {
+      out += c.replace(/[,]\s*$/, "。") + "\n";
+      cl = 0;
+      chars = 0;
+    } else {
+      out += c;
+    }
+  }
+  return out.replace(/\n+$/, "");
+}
+
+function organize(text) {
+  return reflow(defill(text));
 }
 
 // ---------- smart punctuation ----------
@@ -356,7 +443,23 @@ function start({ lang, dictionary, punctStyle: style, engine }) {
   recognition.lang = lang || "zh-CN";
   recognition.continuous = true;
   recognition.interimResults = true;
-  recognition.maxAlternatives = 3; // candidates for AI re-ranking
+  recognition.maxAlternatives = 3; // candidates for local fusion (and AI re-ranking if ever revived)
+
+  // 识别器级热词偏置(Chrome 156+/SpeechRecognitionPhrase):把词典的
+  // 目标词条喂给识别器,让解码阶段就偏向领域词汇——比"识别错了再替换"
+  // 更根本。旧浏览器无此 API 时静默跳过,post-hoc 替换与候选融合不受影响。
+  try {
+    if ("SpeechRecognitionPhrase" in self && recognition.phrases) {
+      const targets = [...new Set(dictPairs.map(([, to]) => to))]
+        .filter((t) => t.length >= 2 && t.length <= 20)
+        .slice(0, 100);
+      for (const t of targets) {
+        recognition.phrases.push(new SpeechRecognitionPhrase(t));
+      }
+    }
+  } catch {
+    /* 偏置失败不影响识别主流程 */
+  }
 
   recognition.onresult = (event) => {
     let interim = "";
@@ -469,7 +572,8 @@ async function stop() {
   // Freeze first, snapshot second. No await in between, so the last result can
   // not slip in after the snapshot and get lost.
   const interimLeft = lastInterim.trim();
-  const raw = segments.map((s) => ({ primary: s.primary, alts: [...(s.alts || [])] }));
+  // 候选融合:词典投票选出更优主候选(平票不动、无词典空操作)
+  const raw = fuseCandidates(segments).map((s) => ({ primary: s.primary, alts: [...(s.alts || [])] }));
   cleanup();
 
   // A partial transcript is still the user's speech. Handlers are detached,
@@ -508,6 +612,8 @@ async function stop() {
     // rule path (instant, no model)
     text = renderStyle(punctuate(raw.map((s) => s.primary))).trim();
   }
+  // 本地组织:口癖清理 + 分段(保守规则,详见 organize 注释)
+  text = organize(text);
   finalizing = false;
   report({ type: "ASR_FINAL", text, raw });
 }

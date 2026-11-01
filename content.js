@@ -256,8 +256,15 @@
         let el = focusedEditable;
         if (el && !el.isConnected) el = null;
         if (!el) el = document.activeElement;
-        if (isEditable(el)) insertAtCursor(el, message.text);
-        else {
+        if (isEditable(el)) {
+          // 组织规则会按句插入分段符;单行输入框(搜索框等)不支持换行,
+          // 多余的 \n 会被当成空格或直接吞掉,统一压成一个空格。
+          const text =
+            el instanceof HTMLTextAreaElement || el.isContentEditable
+              ? message.text
+              : message.text.replace(/\n+/g, " ").trim();
+          insertAtCursor(el, text);
+        } else {
           // No focused input — don't lose the user's speech. clipboard.writeText
           // can HANG forever in a content script without clipboardWrite (no
           // rejection, no resolution), so race it: feedback must not depend on
