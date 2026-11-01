@@ -29,13 +29,6 @@
     "open_in_tab": true
   },
   "permissions": ["offscreen", "storage", "clipboardWrite"],
-  "optional_host_permissions": [
-    "https://huggingface.co/*",
-    "https://cdn-lfs.huggingface.co/*",
-    "https://*.hf.co/*",
-    "https://*.xethub.hf.co/*"
-  ],
-  "host_permissions": ["http://*/*", "https://*/*"],
   "content_scripts": [
     {
       "matches": ["http://*/*", "https://*/*"],

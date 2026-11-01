@@ -4,6 +4,7 @@
 const OFFSCREEN_URL = "offscreen.html";
 const STATE_KEY = "voiceState"; // idle | dictating | processing
 const TAB_KEY = "voiceTabId";
+const URL_KEY = "voiceUrl"; // reported by the content script (no host perms)
 
 const DEFAULTS = {
   language: "zh-CN",
@@ -57,32 +58,6 @@ async function badge(text, color = "#E5484D") {
 async function activeTab() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   return tab;
-}
-
-const MODEL_ORIGINS = [
-  "https://huggingface.co/*",
-  "https://cdn-lfs.huggingface.co/*",
-  "https://*.hf.co/*",
-  "https://*.xethub.hf.co/*",
-];
-
-// Ask for download permission, but tolerate the case where it is already
-// granted (permissions.request() does not always invoke its callback then,
-// which used to leave the download button doing nothing).
-function ensureModelPermission(cb) {
-  chrome.permissions.contains({ origins: MODEL_ORIGINS }, (has) => {
-    if (chrome.runtime.lastError) {
-      cb(false);
-      return;
-    }
-    if (has) {
-      cb(true);
-      return;
-    }
-    chrome.permissions.request({ origins: MODEL_ORIGINS }, (granted) => {
-      cb(!!granted && !chrome.runtime.lastError);
-    });
-  });
 }
 
 async function ensureOffscreen() {
@@ -210,7 +185,7 @@ async function startVoice() {
     return;
   }
 
-  await chrome.storage.session.set({ [TAB_KEY]: tab.id });
+  await chrome.storage.session.set({ [TAB_KEY]: tab.id, [URL_KEY]: ctx.url || "" });
 
   await ensureOffscreen();
   const settings = await getSettings();
@@ -238,7 +213,7 @@ async function stopVoice() {
 }
 
 async function finishWithText(text, raw) {
-  const { [TAB_KEY]: tabId } = await chrome.storage.session.get(TAB_KEY);
+  const { [TAB_KEY]: tabId, [URL_KEY]: voiceUrl } = await chrome.storage.session.get([TAB_KEY, URL_KEY]);
   let finalText = (text || "").trim();
   const tab = tabId ? await chrome.tabs.get(tabId).catch(() => null) : null;
 
@@ -250,7 +225,8 @@ async function finishWithText(text, raw) {
     }
     // HISTORY IS THE BACKSTOP: always recorded, even when the tab is gone or
     // the content script is unreachable. A dictation must never vanish.
-    await pushHistory(polished, tab?.url);
+    // Host comes from the page itself (content script); no host permissions.
+    await pushHistory(polished, voiceUrl);
   }
 
   await setState("idle");
@@ -301,14 +277,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse({ state: await getState(), settings: await getSettings() });
         break;
       }
-      // model management (from options page). permissions.request MUST be the
-      // first call in the listener — any await before it loses the gesture.
+      // model management (from options page). Downloads need no host
+      // permission: HuggingFace resolve/CDN endpoints are CORS-open (verified
+      // through the full redirect chain to us.aws.cdn.hf.co). The old runtime
+      // permission gate was dead code — redundant with the all-URLs content
+      // script access, so Chrome dropped it at load ("will be omitted").
       case "MODEL_INSTALL_REQ": {
-        ensureModelPermission(async (granted) => {
-          if (!granted) {
-            sendResponse({ ok: false, error: "未授予模型下载权限" });
-            return;
-          }
+        (async () => {
           try {
             await ensureOffscreen();
             const res = await chrome.runtime.sendMessage({ type: "MODEL_INSTALL" });
@@ -316,8 +291,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           } catch (err) {
             sendResponse({ ok: false, error: String(err.message || err) });
           }
-        });
-        return true; // async response via permissions callback
+        })();
+        return true; // async response
       }
       case "MODEL_DELETE_REQ": {
         (async () => {
@@ -332,11 +307,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         break;
       }
       case "CSC_INSTALL_REQ": {
-        ensureModelPermission(async (granted) => {
-          if (!granted) {
-            sendResponse({ ok: false, error: "未授予模型下载权限" });
-            return;
-          }
+        (async () => {
           try {
             await ensureOffscreen();
             const res = await chrome.runtime.sendMessage({ type: "CSC_INSTALL" });
@@ -344,8 +315,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           } catch (err) {
             sendResponse({ ok: false, error: String(err.message || err) });
           }
-        });
-        return true;
+        })();
+        return true; // async response
       }
       case "CSC_DELETE_REQ": {
         (async () => {

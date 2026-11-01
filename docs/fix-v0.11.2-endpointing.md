@@ -79,6 +79,28 @@ VAD 事件只能用来延长等待首结果的窗口。
 - **边界**:孤儿节点不写入;死标签页时历史 3→4;焦点丢失时 hint 1s 内出现
   (加权限前:无限挂起,零反馈);正常聚焦插入回归通过。
 
+## 权限架构修正(beta.2,2026-11-02)
+
+扩展页曾报 `Optional permission 'https://*.hf.co/*' is redundant with the required
+permissions`。排查结论:HF 可选权限从 v0.10.0 起就是死代码——`host_permissions:
+["http://*/*","https://*/*"]` 与 content_scripts 全站注入都覆盖它,Chrome 在加载时
+直接丢弃(the "will be omitted" warning),运行时授权门从未执行过 request 分支。
+
+实测钉死的三条权限语义(为后人留档):
+
+1. `content_scripts.matches` 授予**跨域 fetch**能力(扩展上下文):删除
+   host_permissions 后,SW 对 `huggingface.co/.../resolve/main/model.int8.onnx`
+   的 fetch 沿 302 链一路到 `us.aws.cdn.hf.co` 仍然 200(HF 端点 CORS 开放)。
+2. `content_scripts.matches` **不授予** `tabs` API 的 URL 可见性:无 host_permissions
+   时 `tabs.query()` 的 `tab.url` 全部为 undefined——听写历史的 host 字段因此改为
+   content script 在 `GET_CONTEXT` 里上报 `location.href`。
+3. `permissions.contains()` 不把 content_scripts matches 计入已授权集合。
+
+处置:删除 `optional_host_permissions` 与 `ensureModelPermission` 授权门,模型下载
+直连。若未来 HF 收紧 CORS 导致下载失败,恢复路径是:manifest 加回
+`optional_host_permissions`(仅 HF 四域)并恢复授权门——那时它们不再与
+host_permissions 冗余(已删),警告不会复现。
+
 ## 未做(明确的非目标)
 
 - 逐句提交、会话保活(Gboard/Apple 听写模型):会牺牲神经标点的跨句上下文,

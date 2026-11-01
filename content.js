@@ -230,6 +230,9 @@
         sendResponse({
           ok: true,
           canInsert: isEditable(document.activeElement) || !!focusedEditable,
+          // No host_permissions by design: the page's own URL is the only
+          // reliable source (tabs.Tab.url is redacted without them).
+          url: location.href,
         });
         break;
       }
