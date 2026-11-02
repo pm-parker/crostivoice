@@ -5,6 +5,38 @@
   if (window.__crostivoiceLoaded) return;
   window.__crostivoiceLoaded = true;
 
+  // ---------- 孤儿脚本防护 ----------
+  // 扩展被移除/重装后,已打开页面里的旧内容脚本不会随之消失——它的
+  // chrome.runtime 指向已失效的扩展,任何调用都静默失败(实测:移除重装
+  // 后点浮标毫无反应,用户无从得知要刷新页面)。这里把失败变成可见提示。
+  function showStaleHint() {
+    if (document.getElementById("crostivoice-stale")) return;
+    const t = document.createElement("div");
+    t.id = "crostivoice-stale";
+    t.style.cssText =
+      "position:fixed;left:50%;bottom:64px;transform:translateX(-50%);" +
+      "background:#1f2937;color:#fff;padding:10px 18px;border-radius:10px;" +
+      "font:13px/1.6 system-ui,sans-serif;z-index:2147483647;" +
+      "box-shadow:0 4px 16px rgba(0,0,0,.35)";
+    t.textContent = "CrostiVoice 已更新:请刷新本页面(F5)后继续使用语音输入";
+    (document.body || document.documentElement).appendChild(t);
+    setTimeout(() => t.remove(), 6000);
+  }
+
+  function sendToExtension(msg) {
+    try {
+      const p = chrome.runtime.sendMessage(msg);
+      if (p && typeof p.catch === "function") {
+        p.catch((e) => {
+          if (String(e?.message || e).includes("invalidated")) showStaleHint();
+        });
+      }
+    } catch (e) {
+      if (String(e?.message || e).includes("invalidated")) showStaleHint();
+    }
+  }
+  window.__crostivoiceSend = sendToExtension;
+
   // ---------- focus tracking ----------
 
   let focusedEditable = null;
@@ -210,7 +242,7 @@
 
   // 点按切换(与键盘行为一致;配合静音自动结束,无长按系统冲突)
   fabBtn.addEventListener("click", () => {
-    chrome.runtime.sendMessage({ type: "POPUP_ACTION", mode: "dictate" }).catch(() => {});
+    sendToExtension({ type: "POPUP_ACTION", mode: "dictate" });
   });
   fabBtn.addEventListener("contextmenu", (e) => e.preventDefault());
 
@@ -242,7 +274,7 @@
       if (e.code === "KeyA" && e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
         e.preventDefault();
         if (e.repeat) return;
-        chrome.runtime.sendMessage({ type: "POPUP_ACTION", mode: "dictate" }).catch(() => {});
+        sendToExtension({ type: "POPUP_ACTION", mode: "dictate" });
       }
     },
     true

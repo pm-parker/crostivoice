@@ -457,6 +457,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse({ ok: true });
         break;
       }
+      case "ASR_HINT": {
+        // 轻提示(如本地模型未就绪回落云端):toast 告知,不改变状态机
+        const { [TAB_KEY]: tabId } = await chrome.storage.session.get(TAB_KEY);
+        if (tabId && message.message) {
+          await sendToTab(tabId, { type: "VOICE_HINT", message: message.message });
+        }
+        sendResponse({ ok: true });
+        break;
+      }
       case "ASR_ERROR": {
         const { [TAB_KEY]: tabId } = await chrome.storage.session.get(TAB_KEY);
         const hint =

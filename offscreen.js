@@ -661,15 +661,23 @@ async function start({ lang, dictionary, punctStyle: style, engine, context, rec
       }
     }
   }
+  // 本地引擎(whisper/sensevoice)须模型就绪才可用;未就绪(用户没下载/
+  // 缓存丢失/加载失败)时优雅回落云端识别并提示——"唤不起语音"永远不该
+  // 发生(实测:选了 SenseVoice 未下载模型时,会话瞬间报 audio-capture)。
   if (recogMode === "whisper") {
-    ensureWhisperEngine();
-    startWhisperRecognition();
-    return;
-  }
-  if (recogMode === "sensevoice") {
-    ensureSenseVoiceEngine();
-    startSenseVoiceRecognition();
-    return;
+    await ensureWhisperEngine();
+    if (isWhisperReady()) {
+      startWhisperRecognition();
+      return;
+    }
+    report({ type: "ASR_HINT", message: "Whisper 模型未就绪,本次使用云端识别" });
+  } else if (recogMode === "sensevoice") {
+    await ensureSenseVoiceEngine();
+    if (isSenseVoiceReady()) {
+      startSenseVoiceRecognition();
+      return;
+    }
+    report({ type: "ASR_HINT", message: "SenseVoice 模型未就绪,本次使用云端识别" });
   }
   startRecognition(useLocal);
 }
