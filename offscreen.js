@@ -232,33 +232,98 @@ function escapeRe(s) {
 let dictRules = []; // [[RegExp, replacement], ...] — post-hoc 替换
 let dictPairs = []; // [[from, to]] — 候选融合打分用纯字符串
 let pageContext = []; // 页面上下文词袋(标题/输入框已有文字),识别偏置 + 融合信号
-let freqRank = null; // Map<词, 名次>,来自 vendor/freq-zh60k.txt(懒加载,失败容忍)
-let freqLoading = null;
+let ngram1 = null; // Map<字, 频次>
+let ngram2 = null; // Map<二元组, 频次>
+let ngram3 = null; // Map<三元组, 频次>
+let ngram4 = null; // Map<四元组, 频次>
+let ngramTotal = 0; // 一元频次总和(归一化用)
+let ngramLoading = null;
 
-// 中文词频表:候选重排的统计基础信号(IME 词频解码的本地版)。
-// jieba dict.txt(MIT)按频降序前 6 万词,行号即名次。加载失败(网络/文件
-// 缺失)时 freq 分量置零,融合退化为词典+上下文,不影响主流程。
-function ensureFreqTable() {
-  if (freqRank || freqLoading) return freqLoading;
-  freqLoading = (async () => {
+// 字级 n-gram 语言模型(LLM"下一 token 条件概率"的最小本地版):
+// P(c|abc) → P(c|ab) → P(c|a) → P(c),逐级 stupid backoff(折扣 0.4)。
+// 低阶必须用真实条件概率(除以低阶上下文频次),否则关键判别点
+// (数字/树的)在高阶缺失时全落常数,LM 失去分辨力(实测踩坑)。
+// vendor/ngram-zh.txt 由 tools/build_ngram_zh.py 构建;加载失败时
+// LM 分量置零,融合退化为词典+上下文。
+function ensureNgram() {
+  if (ngram4 || ngramLoading) return ngramLoading;
+  ngramLoading = (async () => {
     try {
-      const res = await fetch(new URL("./vendor/freq-zh60k.txt", import.meta.url));
+      const res = await fetch(new URL("./vendor/ngram-zh.txt", import.meta.url));
       if (!res.ok) return;
-      const lines = (await res.text()).split("\n");
-      const map = new Map();
-      for (let i = 0; i < lines.length; i++) {
-        const w = lines[i].trim();
-        if (!w || w.startsWith("#")) continue;
-        map.set(w, map.size + 1); // 名次 = 表内序号
+      const m1 = new Map();
+      const m2 = new Map();
+      const m3 = new Map();
+      const m4 = new Map();
+      let total = 0;
+      for (const line of (await res.text()).split("\n")) {
+        if (line.length < 5 || line[1] !== "\t") continue;
+        const tab = line.indexOf("\t", 2);
+        if (tab < 0) continue;
+        const gram = line.slice(2, tab);
+        const cnt = +line.slice(tab + 1);
+        if (!cnt) continue;
+        if (line[0] === "1") {
+          m1.set(gram, cnt);
+          total += cnt;
+        } else if (line[0] === "2") m2.set(gram, cnt);
+        else if (line[0] === "3") m3.set(gram, cnt);
+        else if (line[0] === "4") m4.set(gram, cnt);
       }
-      if (map.size > 1000) freqRank = map;
+      if (m4.size > 100_000 && total > 0) {
+        ngram1 = m1;
+        ngram2 = m2;
+        ngram3 = m3;
+        ngram4 = m4;
+        ngramTotal = total;
+      }
     } catch {
-      /* 统计信号是增益,不是依赖 */
+      /* LM 是增益,不是依赖 */
     }
-    return freqRank;
+    return ngram4;
   })();
-  return freqLoading;
+  return ngramLoading;
 }
+
+const BO = 0.4; // stupid backoff 折扣
+
+// 文本的字级 LM 对数似然(自然对数)。无表时返回 0。
+function lmScore(text) {
+  if (!ngram4 || text.length < 2) return 0;
+  let total = 0;
+  for (let i = 1; i < text.length; i++) {
+    let p = 0;
+    if (i >= 3) {
+      const ctx = ngram3.get(text.slice(i - 3, i));
+      if (ctx) {
+        const hit = ngram4.get(text.slice(i - 3, i + 1));
+        if (hit) p = hit / ctx;
+      }
+    }
+    if (!p && i >= 2) {
+      const ctx = ngram2.get(text.slice(i - 2, i));
+      if (ctx) {
+        const hit = ngram3.get(text.slice(i - 2, i + 1));
+        if (hit) p = BO * (hit / ctx);
+      }
+    }
+    if (!p) {
+      // 2-gram:P(c|a) = 0.16 × cnt(ac)/cnt(a)
+      const a = text[i - 1];
+      const ca = ngram1.get(a);
+      const hit = ngram2.get(a + text[i]);
+      if (ca && hit) p = BO * BO * (hit / ca);
+    }
+    if (!p) {
+      // 一元:P(c) = 0.064 × cnt(c)/total
+      const c = ngram1.get(text[i]);
+      p = BO * BO * BO * ((c || 0) / ngramTotal || 1e-7);
+    }
+    total += Math.log(Math.max(p, 1e-8));
+  }
+  return total;
+}
+
 
 function setDictionary(list) {
   const entries = (Array.isArray(list) ? list : []).filter((e) => e && e.from && e.to);
@@ -271,11 +336,17 @@ function applyDict(s) {
   return s;
 }
 
-// ---------- candidate fusion (local: dictionary > context > frequency) ----------
-// 识别器每句最多给 3 个候选,默认取第一个。三级信号按优先级比较:
-//   词典(用户意图,±2/条)> 页面上下文(+1/条,搜索引擎"会话消歧"的本地版)
-//   > 词频覆盖(IME 式统计信号,需显著优势才换)。
-// 平票不动、无信号时空操作 —— 不引入概率性改写。
+// ---------- candidate fusion:段级格架 Viterbi 重排 ----------
+// LLM 的核心洞察在此的最小本地版:不逐段独立选词,而是把每段候选排成
+// 格架,对"整条路径"做序列级联合评分——前文的选择通过字级 n-gram 条件
+// 概率影响后文的选择(口音/念错的同音候选,由上下文概率定胜负)。
+//
+// 路径总分 = LM 对数似然(自然对数) + W_DICT·词典分 + W_CTX·上下文分
+//   词典(用户意图)权重最高:±2/条 × 3.0 → 压过典型 LM 波动
+//   上下文(会话消歧)次之:+1/条 × 1.5
+//   LM 是统计兜底,决定同音/近音候选的取舍
+// beam 宽 8,路径数 3^N 指数爆炸时按当前总分剪枝。
+// 最优路径须比"全主候选路径"高出 MARGIN 才生效(保守换选)。
 function dictScore(text) {
   let s = 0;
   for (const [from, to] of dictPairs) {
@@ -293,57 +364,76 @@ function contextVote(text) {
   return s;
 }
 
-// 贪心最长匹配的词频覆盖分:覆盖率主导 + 长词加权(输入法式打分)。
-// 值域约 [0,3],仅在候选间相对比较时有意义。
-function freqScore(text) {
-  if (!freqRank || !text) return 0;
-  const n = text.length;
-  let i = 0;
-  let covered = 0;
-  let bonus = 0;
-  while (i < n) {
-    let len = Math.min(12, n - i);
-    let hit = 0;
-    for (; len >= 2; len--) {
-      if (freqRank.has(text.slice(i, i + len))) {
-        hit = len;
-        break;
+const W_DICT = 3.0;
+const W_CTX = 1.5;
+const PATH_MARGIN = 1.5; // 最优路径需显著优于默认路径(自然对数单位)
+const BEAM_WIDTH = 8;
+
+function pathScore(lm, dict, ctx) {
+  return lm + W_DICT * dict + W_CTX * ctx;
+}
+
+// 段级格架束搜索:segments = [{primary, alts}] → 每段选一个候选,
+// 全局最优路径的选词结果。LM 只在 n-gram 表就绪时参与,否则退化为
+// 逐段词典/上下文比较(与旧行为一致)。
+function fuseCandidates(list) {
+  const useLM = !!ngram4;
+  if (!useLM) {
+    // 无 LM:退化为"每段独立取 dict/ctx 严格更优者"(v0.12 行为)
+    return list.map((seg) => {
+      let primary = seg.primary;
+      let pd = dictScore(primary);
+      let pc = contextVote(primary);
+      for (const alt of seg.alts || []) {
+        const ad = dictScore(alt);
+        const ac = contextVote(alt);
+        if (ad > pd || (ad === pd && ac > pc)) {
+          primary = alt;
+          pd = ad;
+          pc = ac;
+        }
+      }
+      return primary === seg.primary ? seg : { ...seg, primary };
+    });
+  }
+  // 束搜索:路径携带每段的选择(choices),天然可逆——不做文本对齐
+  let paths = [{ text: "", lm: 0, dict: 0, ctx: 0, choices: [] }];
+  for (const seg of list) {
+    const cands = [...new Set([seg.primary, ...(seg.alts || [])].filter(Boolean))];
+    if (cands.length === 0) continue;
+    const next = [];
+    for (const p of paths) {
+      for (let ci = 0; ci < cands.length; ci++) {
+        const c = cands[ci];
+        // LM 增量:前段末 3 字作为本段的条件上下文(跨段 n-gram)
+        const tail = p.text.slice(-3);
+        const lm = p.lm + lmScore(tail + c) - lmScore(tail);
+        next.push({
+          text: p.text + c,
+          lm,
+          dict: p.dict + dictScore(c),
+          ctx: p.ctx + contextVote(c),
+          choices: [...p.choices, ci],
+        });
       }
     }
-    if (hit) {
-      covered += hit;
-      bonus += 1 + Math.log2(hit);
-      i += hit;
-    } else {
-      i += 1;
-    }
+    next.sort((a, b) => pathScore(b.lm, b.dict, b.ctx) - pathScore(a.lm, a.dict, a.ctx));
+    paths = next.slice(0, BEAM_WIDTH);
   }
-  return (covered / n) * 2 + (covered > 0 ? bonus / covered : 0);
-}
-
-function candidateScore(text) {
-  return { dict: dictScore(text), ctx: contextVote(text), freq: freqScore(text) };
-}
-
-// 频率分量需要显著优势才允许单独触发换选(统计噪声防护)
-const FREQ_MARGIN = 0.35;
-
-function betterCandidate(alt, primary) {
-  const a = candidateScore(alt);
-  const p = candidateScore(primary);
-  if (a.dict !== p.dict) return a.dict > p.dict;
-  if (a.ctx !== p.ctx) return a.ctx > p.ctx;
-  return a.freq > p.freq + FREQ_MARGIN;
-}
-
-function fuseCandidates(list) {
-  return list.map((seg) => {
-    if (!seg.alts || seg.alts.length === 0) return seg;
-    let best = seg.primary;
-    for (const alt of seg.alts) {
-      if (betterCandidate(alt, best)) best = alt;
-    }
-    return best === seg.primary ? seg : { ...seg, primary: best };
+  // 最优路径 vs 默认路径(全 primary),需显著优势才换选
+  const best = paths[0];
+  const joined = list.map((s) => s.primary).join("");
+  const deflm = lmScore(joined);
+  const defdict = list.reduce((a, s) => a + dictScore(s.primary), 0);
+  const defctx = list.reduce((a, s) => a + contextVote(s.primary), 0);
+  if (pathScore(best.lm, best.dict, best.ctx) <= pathScore(deflm, defdict, defctx) + PATH_MARGIN) {
+    return list;
+  }
+  // 反解:choices 存的是每段在去重候选表里的下标,按段还原
+  return list.map((seg, i) => {
+    const cands = [...new Set([seg.primary, ...(seg.alts || [])].filter(Boolean))];
+    const chosen = cands[best.choices[i]] ?? seg.primary;
+    return chosen === seg.primary ? seg : { ...seg, primary: chosen };
   });
 }
 
@@ -524,7 +614,7 @@ function start({ lang, dictionary, punctStyle: style, engine, context }) {
     .map((t) => String(t))
     .filter((t) => t.length >= 2 && t.length <= 20)
     .slice(0, 20);
-  ensureFreqTable(); // 懒加载一次,失败容忍
+  ensureNgram(); // 懒加载一次,失败容忍
   if (style) punctStyle = style;
   if (engine) engineChoice = engine;
   ensureNnEngine(); // from cache only — never downloads implicitly
