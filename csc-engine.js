@@ -164,6 +164,12 @@ export async function tryInitCsc() {
 // with the model's prediction; correct tokens map to themselves)
 export async function correct(text) {
   if (!isCscReady()) return text;
+  // 纯 ASCII/标点/空文本经 tokenizer 后 token_ids 为空数组,模型直接抛
+  // "token_ids must be a non-empty array of integers"(实测)。这类文本
+  // 本就不需要同音纠错,直接原样返回。
+  const clean = String(text || "").replace(/[\s\u3002\uFF0C\uFF1F\uFF01\uFF1A\uFF1B\u3001,_.?!;:~'"()[\]{}<>@#$%^&*+=/\\|-]/g, "");
+  if (!clean) return text;
+  if (!/[\u4e00-\u9fff]/.test(clean)) return text; // 无汉字 → 纠错无意义
   const inputs = tokenizer(text, { truncation: true, max_length: 120 });
   const { logits } = await model(inputs);
   const ids = inputs.input_ids.data;

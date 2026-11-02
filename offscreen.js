@@ -668,9 +668,6 @@ function startRecognition(useLocal) {
       /* 旧浏览器无此属性 → 赋值无害 */
     }
   }
-  recognition.continuous = true;
-  recognition.interimResults = true;
-  recognition.maxAlternatives = 3; // candidates for local fusion (and AI re-ranking if ever revived)
 
   // 识别器级热词偏置(Chrome 156+/SpeechRecognitionPhrase):词典目标词 +
   // 页面上下文词喂给识别器,让解码阶段就偏向领域词汇——比"识别错了再替换"
