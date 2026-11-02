@@ -162,34 +162,85 @@ export async function tryInitCsc() {
 
 // token-level argmax correction (macbert4csc inference = replace every token
 // with the model's prediction; correct tokens map to themselves)
+//
+// v0.17.1 重写输出管线(浏览器实测暴露三问题,见 docs/quality-local.md):
+//  1. decode(skip_special_tokens) 会把模型预测的特殊 token 静默丢掉 →
+//     孤立语气词被整体吃掉("嗯"→"","一丁"→"一")。
+//  2. decode 在 CJK 与数字/标点间插空格("第3章"→"第 3 章"),ASCII 大写被
+//     lowercase(词表全小写,"A型血"→"a型血")。
+//  3. 代词过度纠错:他→她 p 可达 0.935,而真纠错 因→应 仅 0.881 —— 概率
+//     分不开,只能保守:置信度门槛 0.96(挡住全部观测到的 他→她,保住
+//     门→们 0.999 / 汽→气 0.994)。错改比漏改更伤信任。
+// 方案:按字对齐合并 —— 输出保留原文骨架(空格/大小写/标点原样),只在
+// 对应位置是"高置信汉字→汉字"替换时才换字。长度不齐(含 emoji/[UNK] 等
+// 不可对齐字符)整体放弃纠错,原文安全返回。
 export async function correct(text) {
   if (!isCscReady()) return text;
+  const raw = String(text || "");
   // 纯 ASCII/标点/空文本经 tokenizer 后 token_ids 为空数组,模型直接抛
   // "token_ids must be a non-empty array of integers"(实测)。这类文本
   // 本就不需要同音纠错,直接原样返回。
-  const clean = String(text || "").replace(/[\s\u3002\uFF0C\uFF1F\uFF01\uFF1A\uFF1B\u3001,_.?!;:~'"()[\]{}<>@#$%^&*+=/\\|-]/g, "");
+  const clean = raw.replace(/[\s\u3002\uFF0C\uFF1F\uFF01\uFF1A\uFF1B\u3001,_.?!;:~'"()[\]{}<>@#$%^&*+=/\\|-]/g, "");
   if (!clean) return text;
   if (!/[\u4e00-\u9fff]/.test(clean)) return text; // 无汉字 → 纠错无意义
-  const inputs = tokenizer(text, { truncation: true, max_length: 120 });
+  const inputs = tokenizer(raw, { truncation: true, max_length: 120 });
+  // 守卫(token 级):分词后无内容 token(仅 [CLS][SEP])→ 原样返回。
+  // 不依赖输入级启发式猜测 tokenizer 会丢弃哪些字符。
+  const ids = inputs.input_ids?.data;
+  if (!ids || ids.length < 3) return raw;
   const { logits } = await model(inputs);
-  const ids = inputs.input_ids.data;
   const dims = logits.dims;
   const VV = dims[2];
   const data = logits.data;
   const out = [];
+  const probs = []; // 每位置 argmax 的 softmax 概率(置信度门槛用)
   for (let i = 1; i < ids.length - 1; i++) {
+    const off = i * VV;
     let best = 0;
     let bestV = -Infinity;
     for (let v = 0; v < VV; v++) {
-      const val = data[i * VV + v];
+      const val = data[off + v];
       if (val > bestV) {
         bestV = val;
         best = v;
       }
     }
+    // p = exp(max)/Σexp(x) = 1/Σexp(x-max)(bestV 即行最大值)
+    let sum = 0;
+    for (let v = 0; v < VV; v++) sum += Math.exp(data[off + v] - bestV);
     out.push(best);
+    probs.push(1 / sum);
   }
-  const decoded = tokenizer.decode(out, { skip_special_tokens: true });
-  // decode adds spaces between CJK chars — remove those only
-  return decoded.replace(/(?<=[\u3400-\u9fff])\s+(?=[\u3400-\u9fff])/g, "");
+  // 守卫(输出级):预测序列为空 → decode 必抛 token_ids 错,原样返回
+  if (!out.length) return raw;
+  let decoded;
+  try {
+    decoded = tokenizer.decode(out, { skip_special_tokens: true });
+  } catch {
+    return raw; // "token_ids must be a non-empty array" 的最后防线
+  }
+  // 按字对齐:decode 的空格是插入物,双方都剥掉空格后逐码点对齐。
+  // 长度不齐(emoji/[UNK] 被丢弃、模型输出增生)→ 放弃纠错保原文。
+  const dChars = [...decoded].filter((c) => !/\s/.test(c));
+  let di = 0;
+  const rNoSp = [...raw].filter((c) => !/\s/.test(c));
+  if (dChars.length !== rNoSp.length) return raw;
+  // 合并:原文骨架 + 仅替换「高置信 汉字→汉字」的位置。标点/大小写/
+  // 数字/空格全部保持原样 —— 模型对它们没有发言权。
+  let result = "";
+  for (const ch of raw) {
+    if (/\s/.test(ch)) {
+      result += ch;
+      continue;
+    }
+    const d = dChars[di];
+    const p = probs[di];
+    di++;
+    if (d && d !== ch && /[\u4e00-\u9fff]/.test(d) && p >= 0.96) {
+      result += d;
+    } else {
+      result += ch;
+    }
+  }
+  return result;
 }
