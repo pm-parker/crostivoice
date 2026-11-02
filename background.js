@@ -396,7 +396,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         (async () => {
           try {
             await ensureOffscreen();
-            const res = await sendToOffscreen({ type: "MODEL_INSTALL" });
+            const res = await sendToOffscreen({ type: "MODEL_INSTALL" }, 90000);
             sendResponse(res || { ok: true });
           } catch (err) {
             sendResponse({ ok: false, error: String(err.message || err) });
@@ -408,7 +408,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         (async () => {
           try {
             await ensureOffscreen();
-            const res = await sendToOffscreen({ type: "MODEL_DELETE" });
+            const res = await sendToOffscreen({ type: "MODEL_DELETE" }, 90000);
             sendResponse(res || { ok: true });
           } catch (err) {
             sendResponse({ ok: false, error: String(err.message || err) });
@@ -420,7 +420,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         (async () => {
           try {
             await ensureOffscreen();
-            const res = await sendToOffscreen({ type: "CSC_INSTALL" });
+            const res = await sendToOffscreen({ type: "CSC_INSTALL" }, 90000);
             sendResponse(res || { ok: true });
           } catch (err) {
             sendResponse({ ok: false, error: String(err.message || err) });
@@ -432,7 +432,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         (async () => {
           try {
             await ensureOffscreen();
-            const res = await sendToOffscreen({ type: "CSC_DELETE" });
+            const res = await sendToOffscreen({ type: "CSC_DELETE" }, 90000);
             sendResponse(res || { ok: true });
           } catch (err) {
             sendResponse({ ok: false, error: String(err.message || err) });
@@ -446,7 +446,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         (async () => {
           try {
             await ensureOffscreen();
-            const res = await sendToOffscreen({ type: "WHISPER_INSTALL" });
+            const res = await sendToOffscreen({ type: "WHISPER_INSTALL" }, 90000);
             sendResponse(res || { ok: true });
           } catch (err) {
             sendResponse({ ok: false, error: String(err.message || err) });
@@ -458,7 +458,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         (async () => {
           try {
             await ensureOffscreen();
-            const res = await sendToOffscreen({ type: "WHISPER_DELETE" });
+            const res = await sendToOffscreen({ type: "WHISPER_DELETE" }, 90000);
             sendResponse(res || { ok: true });
           } catch (err) {
             sendResponse({ ok: false, error: String(err.message || err) });
@@ -471,10 +471,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         (async () => {
           try {
             await ensureOffscreen();
-            const res = await sendToOffscreen({ type: "SENSEVOICE_INSTALL" });
+            const res = await sendToOffscreen({ type: "SENSEVOICE_INSTALL" }, 90000);
             sendResponse(res || { ok: true });
           } catch (err) {
-            sendResponse({ ok: false, error: String(err.message || err) });
+            const raw = String(err?.message || err);
+            const friendly = raw.includes("message port closed")
+              ? "下载进程中断(设备内存不足或浏览器重启),请点击重试"
+              : raw.includes("Could not establish connection")
+              ? "后台引擎无响应,请重启浏览器后重试"
+              : raw;
+            sendResponse({ ok: false, error: friendly.slice(0, 120) });
           }
         })();
         break;
@@ -483,7 +489,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         (async () => {
           try {
             await ensureOffscreen();
-            const res = await sendToOffscreen({ type: "SENSEVOICE_DELETE" });
+            const res = await sendToOffscreen({ type: "SENSEVOICE_DELETE" }, 90000);
             sendResponse(res || { ok: true });
           } catch (err) {
             sendResponse({ ok: false, error: String(err.message || err) });
@@ -495,8 +501,30 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         (async () => {
           try {
             await ensureOffscreen();
-            const res = await sendToOffscreen({ type: "MODEL_CHECK" });
-            const { modelStatus } = await chrome.storage.local.get("modelStatus");
+            const res = await sendToOffscreen({ type: "MODEL_CHECK" }, 45000);
+            let { modelStatus } = await chrome.storage.local.get("modelStatus");
+            // 自愈僵尸 downloading:下载在 offscreen/renderer 里跑,每 ~250ms
+            // 写一次进度;超过 90s 没有新写入 = 下载进程已死(浏览器重启/
+            // 渲染进程被杀)。缓存齐 → 已下载态,否则重置。此前这逻辑放在
+            // offscreen 里调 chrome.storage —— offscreen 没有该 API,自
+            // v0.15 起就是静默死代码(实测:僵尸 downloading 困死设置页)。
+            if (modelStatus && Date.now() - (modelStatus.ts || 0) > 90000) {
+              const fix = {};
+              const pairs = [
+                ["phase", res?.cached, "ready", "not-installed"],
+                ["cscPhase", res?.cscCached, "ready", "not-installed"],
+                ["svPhase", res?.svCached, "ready", "not-installed"],
+                ["whPhase", res?.whCached, "ready", "not-installed"],
+              ];
+              for (const [k, cachedFlag, cachedVal, missVal] of pairs) {
+                if (modelStatus[k] === "downloading") fix[k] = cachedFlag ? cachedVal : missVal;
+              }
+              if (Object.keys(fix).length) {
+                modelStatus = { ...modelStatus, ...fix, ts: Date.now() };
+                await chrome.storage.local.set({ modelStatus });
+                console.log("[cv] 自愈僵尸下载状态:", fix);
+              }
+            }
             sendResponse({ ok: true, ...res, status: modelStatus || null });
           } catch (err) {
             sendResponse({ ok: false, error: String(err.message || err) });
@@ -514,7 +542,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           if (seq) lastStatusSeq = seq;
           const { modelStatus = {} } = await chrome.storage.local.get("modelStatus");
           await chrome.storage.local.set({
-            modelStatus: { ...modelStatus, ...message.patch },
+            modelStatus: { ...modelStatus, ...message.patch, ts: Date.now() },
           });
         });
         await statusQueue;

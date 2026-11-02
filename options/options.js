@@ -447,7 +447,10 @@ async function refreshRecogLocal() {
             try {
               const res = await chrome.runtime.sendMessage({ type: "SENSEVOICE_INSTALL_REQ" });
               if (res && res.ok === false) {
-                toast("下载失败:" + String(res.error || "").slice(0, 60));
+                const why = String(res.error || "未知错误").slice(0, 90);
+                toast("下载失败:" + why);
+                const noteEl = document.getElementById("rl-note");
+                if (noteEl) noteEl.textContent = "⚠ SenseVoice 下载失败:" + why + " —— 点击按钮重试";
               } else {
                 toast("SenseVoice 模型下载完成");
               }
@@ -611,8 +614,8 @@ function renderSvLive() {
       const loadedMB = s.svPct && s.svLoadedMB ? "(" + s.svLoadedMB + "MB)" : "";
       if (note) note.textContent = "⏬ SenseVoice 模型下载中… " + pct + "%" + loadedMB + " 约 228MB,下载完成自动就绪,期间可关闭此页";
       if (owns) { btn.hidden = false; btn.disabled = true; btn.textContent = "下载中… " + pct + "%"; }
-    } else if (s.svPhase === "ready") {
-      if (note) note.textContent = "✅ SenseVoice 本地识别已就绪:「识别引擎」选 SenseVoice 本地,即可免翻墙零上传听写";
+    } else if (s.svPhase === "ready" || s.svPhase === "cached") {
+      if (note) note.textContent = "✅ SenseVoice 模型已就绪:「识别引擎」选 SenseVoice 本地,即可免翻墙零上传听写" + (s.svPhase === "cached" ? "(首次听写时加载,若失败自动用云端)" : "");
       if (owns) { btn.hidden = false; btn.disabled = true; btn.textContent = "已就绪 ✓"; }
     } else if (s.svPhase === "error") {
       if (note) note.textContent = "⚠ SenseVoice 下载失败:" + String(s.message || "未知错误").slice(0, 80);

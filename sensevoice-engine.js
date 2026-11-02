@@ -143,8 +143,17 @@ export async function installSenseVoice(onProgress) {
       });
     }
   }
-  await loadFromCache();
-  return true;
+  // 会话创建(229MB int8 → WASM 堆 ~1GB)在低内存设备可能失败/压垮渲染进程:
+  // 下载完成即算安装成功,会话尽力而为——首次听写时 tryInit 再试,
+  // 失败由引擎选择层自动回落云端(offscreen start 的 ASR_HINT 路径)。
+  let loaded = false;
+  try {
+    await loadFromCache();
+    loaded = isSenseVoiceReady();
+  } catch (err) {
+    console.warn("[cv] sensevoice session create deferred:", err);
+  }
+  return { loaded };
 }
 
 let loading = false;

@@ -132,39 +132,6 @@ function reportModelStatus(patch) {
   }
 }
 
-// normalize stale states persisted by a previous browser session:
-// a "downloading"/"loading" phase can't survive a restart — resolve it
-// against the actual cache so the settings page shows the truth.
-async function normalizeStaleModelStatus() {
-  try {
-    const { modelStatus } = await chrome.storage.local.get("modelStatus");
-    if (!modelStatus) return;
-    const patch = {};
-    if (
-      (modelStatus.phase === "downloading" || modelStatus.phase === "loading") &&
-      (await isModelCached())
-    ) {
-      patch.phase = "ready";
-    } else if (modelStatus.phase === "downloading" || modelStatus.phase === "loading") {
-      patch.phase = "not-installed";
-    }
-    if (
-      (modelStatus.cscPhase === "downloading" || modelStatus.cscPhase === "loading") &&
-      (await isCscCached())
-    ) {
-      patch.cscPhase = "ready";
-    } else if (modelStatus.cscPhase === "downloading" || modelStatus.cscPhase === "loading") {
-      patch.cscPhase = "not-installed";
-    }
-    if (Object.keys(patch).length) {
-      console.log("[cv] normalizing stale model status:", patch);
-      await reportModelStatus(patch);
-    }
-  } catch {
-    /* best effort */
-  }
-}
-
 // Load neural engines FROM CACHE ONLY (never trigger a download).
 // Explicit downloads happen only via MODEL_INSTALL / CSC_INSTALL
 // (user clicked the download button in settings).
@@ -1075,17 +1042,24 @@ const __cvListener = (message, _sender, sendResponse) => {
     return true;
   } else if (message?.type === "SENSEVOICE_INSTALL") {
     (async () => {
+      const started = Date.now();
       try {
-        reportModelStatus({ svPhase: "downloading", svPct: 0 });
-        await installSenseVoice(async (loaded, total, stage) => {
+        reportModelStatus({ svPhase: "downloading", svPct: 0, message: "" });
+        const res = await installSenseVoice(async (loaded, total, stage) => {
           const pct = total ? Math.min(100, Math.round((loaded / total) * 100)) : 0;
-          reportModelStatus({ svPhase: "downloading", svPct: pct, svStage: stage });
+          const mb = Math.round(loaded / 1048576) + "/" + Math.round((total || 0) / 1048576) + "MB";
+          reportModelStatus({ svPhase: "downloading", svPct: pct, svLoadedMB: mb, svStage: stage || "model" });
         });
-        await reportModelStatus({ svPhase: "ready", svPct: 100 });
-        sendResponse({ ok: true });
+        // res.loaded = 会话是否就绪(下载成功但内存不足建不了会话也算"已下载",
+        // 首次听写时再试,失败自动回落云端——不在安装时硬卡)
+        await reportModelStatus(res?.loaded
+          ? { svPhase: "ready", svPct: 100 }
+          : { svPhase: "cached", svPct: 100, message: "模型已下载,首次听写时加载" });
+        sendResponse({ ok: true, loaded: !!res?.loaded, seconds: Math.round((Date.now() - started) / 1000) });
       } catch (err) {
-        await reportModelStatus({ svPhase: "error", message: String(err.message || err).slice(0, 120) });
-        sendResponse({ ok: false, error: String(err.message || err) });
+        const msg = String(err?.message || err).slice(0, 160);
+        await reportModelStatus({ svPhase: "error", message: msg });
+        sendResponse({ ok: false, error: msg });
       }
     })();
     return true;
@@ -1128,13 +1102,16 @@ const __cvListener = (message, _sender, sendResponse) => {
       if (!isCscReady() && (await isCscCached())) {
         ensureCscEngine();
       }
-      await normalizeStaleModelStatus();
       sendResponse({
         ok: true,
         cached: await isModelCached(),
         ready: isEngineReady(),
         cscCached: await isCscCached(),
         cscReady: isCscReady(),
+        svCached: await isSenseVoiceCached(),
+        svReady: isSenseVoiceReady(),
+        whCached: await isWhisperCached(),
+        whReady: isWhisperReady(),
       });
     })();
     return true;
