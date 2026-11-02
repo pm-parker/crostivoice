@@ -430,19 +430,21 @@ async function refreshRecogLocal() {
     } else {
       // SODA 不支持时,Whisper 是替代方案 → 显示下载按钮
       if (status === "unavailable") {
-        note.textContent += "\n此设备不支持端上识别包 → 可下载 Whisper 模型(约 38MB)实现免翻墙识别";
+        note.textContent += "\n推荐引擎:SenseVoice 本地(228MB,中文质量优、速度 10 倍于 Whisper、自带标点)";
         if (whBtn) {
           whBtn.hidden = false;
-          whBtn.textContent = "下载 Whisper 模型";
+          whBtn.textContent = "下载 SenseVoice 模型";
           whBtn.onclick = async () => {
             if (rlBusy) return;
             rlBusy = true; whBtn.disabled = true;
+            whBtn.textContent = "下载中…";
             try {
-              await chrome.runtime.sendMessage({ type: "WHISPER_INSTALL_REQ" });
-              toast("Whisper 模型已下载");
+              await chrome.runtime.sendMessage({ type: "SENSEVOICE_INSTALL_REQ" });
+              toast("SenseVoice 模型已下载");
             } catch (e) {
               toast("下载失败:" + String(e.message || e).slice(0, 60));
             }
+            whBtn.textContent = "下载 SenseVoice 模型";
             whBtn.disabled = false; rlBusy = false;
             setTimeout(refreshRecogLocal, 800);
           };

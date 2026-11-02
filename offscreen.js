@@ -26,6 +26,14 @@ import {
   isWhisperCached,
   WhisperSession,
 } from "./whisper-engine.js";
+import {
+  isSenseVoiceReady,
+  installSenseVoice,
+  tryInitSenseVoice,
+  deleteSenseVoice,
+  isSenseVoiceCached,
+  SenseVoiceSession,
+} from "./sensevoice-engine.js";
 
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 
@@ -634,7 +642,7 @@ async function start({ lang, dictionary, punctStyle: style, engine, context, rec
   // local:强制本地(实验,失败显式报错)。桌面 Linux 实测:包可安装但
   // 会话报 language-not-supported——auto 模式遇到此错误自动回落云端并
   // 记住(本浏览器生命周期内不再尝试)。
-  recogMode = recogEngine === "server" || recogEngine === "local" || recogEngine === "whisper" ? recogEngine : "auto";
+  recogMode = recogEngine === "server" || recogEngine === "local" || recogEngine === "whisper" || recogEngine === "sensevoice" ? recogEngine : "auto";
   let useLocal = false;
   if (recogMode === "local") {
     localLangTag = String(lang || "zh-CN"); // 强制本地:直接用用户语言
@@ -658,12 +666,62 @@ async function start({ lang, dictionary, punctStyle: style, engine, context, rec
     startWhisperRecognition();
     return;
   }
+  if (recogMode === "sensevoice") {
+    ensureSenseVoiceEngine();
+    startSenseVoiceRecognition();
+    return;
+  }
   startRecognition(useLocal);
 }
 
 async function ensureWhisperEngine() {
   if (isWhisperReady()) return;
   try { await tryInitWhisper(); } catch { /* best effort */ }
+}
+
+async function ensureSenseVoiceEngine() {
+  if (isSenseVoiceReady()) return;
+  try { await tryInitSenseVoice(); } catch { /* best effort */ }
+}
+
+function startSenseVoiceRecognition() {
+  sessionUseLocal = false;
+  recognition = new SenseVoiceSession();
+  recognition.lang = sessionLang || "zh-CN";
+  recognition.onresult = (event) => {
+    for (let i = event.resultIndex; i < event.results.length; i++) {
+      const r = event.results[i];
+      if (r.isFinal) {
+        const primary = r[0].transcript;
+        if (primary && primary.trim()) segments.push({ primary, alts: [] });
+        lastInterim = "";
+      }
+    }
+    const finalPart = punctuate(segments.map((s) => s.primary));
+    const live = finalPart.trim();
+    if (live || segments.length) report({ type: "ASR_INTERIM", text: live });
+    noteTranscriptActivity();
+  };
+  recognition.onerror = (event) => {
+    report({ type: "ASR_ERROR", code: event.error || "sensevoice-error", message: event.message });
+    cleanup();
+  };
+  recognition.onend = () => { /* 计时器管理在 offscreen 层 */ };
+  recognition.onspeechstart = () => { armWaitTimer(); };
+  recognition.onspeechend = () => { rearmGapTimer(); };
+
+  try {
+    recognition.start();
+    active = true;
+    clearClocks();
+    armWaitTimer();
+    maxTimer = setTimeout(() => {
+      maxTimer = null;
+      if (active) stop();
+    }, MAX_MS);
+  } catch (err) {
+    report({ type: "ASR_ERROR", code: "start-failed", message: String(err) });
+  }
 }
 
 function startWhisperRecognition() {
@@ -1005,6 +1063,28 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       sendResponse({ ok: true });
     })();
     return true;
+  } else if (message?.type === "SENSEVOICE_INSTALL_REQ") {
+    (async () => {
+      try {
+        await ensureOffscreen();
+        const res = await chrome.runtime.sendMessage({ type: "SENSEVOICE_INSTALL" });
+        sendResponse(res || { ok: true });
+      } catch (err) {
+        sendResponse({ ok: false, error: String(err.message || err) });
+      }
+    })();
+    return true;
+  } else if (message?.type === "SENSEVOICE_DELETE_REQ") {
+    (async () => {
+      try {
+        await ensureOffscreen();
+        const res = await chrome.runtime.sendMessage({ type: "SENSEVOICE_DELETE" });
+        sendResponse(res || { ok: true });
+      } catch (err) {
+        sendResponse({ ok: false, error: String(err.message || err) });
+      }
+    })();
+    return true;
   } else if (message?.type === "WHISPER_INSTALL_REQ") {
     (async () => {
       try {
@@ -1025,6 +1105,29 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       } catch (err) {
         sendResponse({ ok: false, error: String(err.message || err) });
       }
+    })();
+    return true;
+  } else if (message?.type === "SENSEVOICE_INSTALL") {
+    (async () => {
+      try {
+        reportModelStatus({ svPhase: "downloading", svPct: 0 });
+        await installSenseVoice(async (loaded, total, stage) => {
+          const pct = total ? Math.min(100, Math.round((loaded / total) * 100)) : 0;
+          reportModelStatus({ svPhase: "downloading", svPct: pct, svStage: stage });
+        });
+        await reportModelStatus({ svPhase: "ready", svPct: 100 });
+        sendResponse({ ok: true });
+      } catch (err) {
+        await reportModelStatus({ svPhase: "error", message: String(err.message || err).slice(0, 120) });
+        sendResponse({ ok: false, error: String(err.message || err) });
+      }
+    })();
+    return true;
+  } else if (message?.type === "SENSEVOICE_DELETE") {
+    (async () => {
+      await deleteSenseVoice();
+      reportModelStatus({ svPhase: "not-installed", svPct: 0 });
+      sendResponse({ ok: true });
     })();
     return true;
   } else if (message?.type === "WHISPER_INSTALL") {
