@@ -390,6 +390,31 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         })();
         break;
       }
+      // SenseVoice 模型管理(设置页 → SW → offscreen)
+      case "SENSEVOICE_INSTALL_REQ": {
+        (async () => {
+          try {
+            await ensureOffscreen();
+            const res = await chrome.runtime.sendMessage({ type: "SENSEVOICE_INSTALL" });
+            sendResponse(res || { ok: true });
+          } catch (err) {
+            sendResponse({ ok: false, error: String(err.message || err) });
+          }
+        })();
+        break;
+      }
+      case "SENSEVOICE_DELETE_REQ": {
+        (async () => {
+          try {
+            await ensureOffscreen();
+            const res = await chrome.runtime.sendMessage({ type: "SENSEVOICE_DELETE" });
+            sendResponse(res || { ok: true });
+          } catch (err) {
+            sendResponse({ ok: false, error: String(err.message || err) });
+          }
+        })();
+        break;
+      }
       case "MODEL_STATUS_REQ": {
         (async () => {
           try {

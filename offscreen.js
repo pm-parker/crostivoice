@@ -1063,29 +1063,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       sendResponse({ ok: true });
     })();
     return true;
-  } else if (message?.type === "SENSEVOICE_INSTALL_REQ") {
-    (async () => {
-      try {
-        await ensureOffscreen();
-        const res = await chrome.runtime.sendMessage({ type: "SENSEVOICE_INSTALL" });
-        sendResponse(res || { ok: true });
-      } catch (err) {
-        sendResponse({ ok: false, error: String(err.message || err) });
-      }
-    })();
-    return true;
-  } else if (message?.type === "SENSEVOICE_DELETE_REQ") {
-    (async () => {
-      try {
-        await ensureOffscreen();
-        const res = await chrome.runtime.sendMessage({ type: "SENSEVOICE_DELETE" });
-        sendResponse(res || { ok: true });
-      } catch (err) {
-        sendResponse({ ok: false, error: String(err.message || err) });
-      }
-    })();
-    return true;
-  } else if (message?.type === "WHISPER_INSTALL_REQ") {
+   else if (message?.type === "WHISPER_INSTALL_REQ") {
     (async () => {
       try {
         await ensureOffscreen();

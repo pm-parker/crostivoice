@@ -417,13 +417,18 @@ async function refreshRecogLocal() {
 
   // Whisper 模型状态(独立于 SODA 包)
   try {
-    const whRes = await chrome.runtime.sendMessage({ type: "MODEL_STATUS_REQ" });
-    const whStatus = whRes?.status?.whPhase;
+    const stRes = await chrome.runtime.sendMessage({ type: "MODEL_STATUS_REQ" });
+    const svStatus = stRes?.status?.svPhase;
+    const whStatus = stRes?.status?.whPhase;
     const whBadge = $("rl-badge");
     const whText = $("rl-badge-text");
     const whBtn = $("rl-install");
-    // 若 SODA 状态行已有内容,Whisper 状态追加到 note
-    if (whStatus === "ready") {
+    // 优先显示 SenseVoice 状态(推荐引擎),Whisper 为备选
+    if (svStatus === "ready") {
+      note.textContent += "\n✅ SenseVoice 本地识别模型已就绪(引擎选「SenseVoice 本地」即可免翻墙使用)";
+    } else if (svStatus === "downloading") {
+      note.textContent += `\n⏬ SenseVoice 模型下载中… ${stRes?.status?.svPct || 0}%`;
+    } else if (whStatus === "ready") {
       note.textContent += "\n✅ Whisper 本地识别模型已就绪(引擎选「Whisper 本地」即可免翻墙使用)";
     } else if (whStatus === "downloading") {
       note.textContent += `\n⏬ Whisper 模型下载中… ${whRes?.status?.whPct || 0}%`;
