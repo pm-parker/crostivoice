@@ -597,7 +597,7 @@ function renderStyle(text) {
 
 // ---------- recognition ----------
 
-function start({ lang, dictionary, punctStyle: style, engine, context }) {
+async function start({ lang, dictionary, punctStyle: style, engine, context, recogEngine }) {
   if (!SR) {
     report({ type: "ASR_ERROR", code: "unsupported", message: "此浏览器不支持语音识别" });
     return;
@@ -619,8 +619,55 @@ function start({ lang, dictionary, punctStyle: style, engine, context }) {
   if (engine) engineChoice = engine;
   ensureNnEngine(); // from cache only — never downloads implicitly
   ensureCscEngine();
+
+  sessionLang = lang || "zh-CN";
+  // ---------- 识别引擎决策 ----------
+  // auto:本地包 available → processLocally(免翻墙/零上传);否则云端。
+  // local:强制本地(实验,失败显式报错)。桌面 Linux 实测:包可安装但
+  // 会话报 language-not-supported——auto 模式遇到此错误自动回落云端并
+  // 记住(本浏览器生命周期内不再尝试)。
+  recogMode = recogEngine === "server" || recogEngine === "local" ? recogEngine : "auto";
+  let useLocal = false;
+  if (recogMode === "local") {
+    localLangTag = String(lang || "zh-CN"); // 强制本地:直接用用户语言
+    useLocal = true;
+  } else if (recogMode === "auto" && !localEngineBroken && typeof SR.available === "function") {
+    const want = String(lang || "zh-CN");
+    for (const tag of [want, want.split(/[-_]/)[0]]) {
+      try {
+        if ((await SR.available({ langs: [tag], processLocally: true })) === "available") {
+          localLangTag = tag;
+          useLocal = true;
+          break;
+        }
+      } catch {
+        /* API 不可用 → 云端 */
+      }
+    }
+  }
+  startRecognition(useLocal);
+}
+
+let sessionLang = "zh-CN"; // 本会话用户设置的识别语言
+let recogMode = "auto"; // auto | server | local(每会话)
+let localEngineBroken = false; // 本地引擎在本浏览器确认不可用(如桌面 Linux)
+let localLangTag = ""; // 探测通过的本地语言标签
+let sessionUseLocal = false; // 当前会话实际是否走本地
+
+function startRecognition(useLocal) {
+  sessionUseLocal = useLocal;
   recognition = new SR();
-  recognition.lang = lang || "zh-CN";
+  recognition.lang = useLocal && localLangTag ? localLangTag : sessionLang || "zh-CN";
+  recognition.continuous = true;
+  recognition.interimResults = true;
+  recognition.maxAlternatives = 3; // candidates for local fusion (and AI re-ranking if ever revived)
+  if (useLocal) {
+    try {
+      recognition.processLocally = true; // 端上识别:零网络
+    } catch {
+      /* 旧浏览器无此属性 → 赋值无害 */
+    }
+  }
   recognition.continuous = true;
   recognition.interimResults = true;
   recognition.maxAlternatives = 3; // candidates for local fusion (and AI re-ranking if ever revived)
@@ -688,6 +735,21 @@ function start({ lang, dictionary, punctStyle: style, engine, context }) {
     // no-speech/aborted are routine: Chrome fires them on silence and on
     // stop(). Only real failures are surfaced to the user.
     if (event.error === "no-speech" || event.error === "aborted") return;
+    // 本地引擎不被平台支持(实测桌面 Linux):auto 模式自动回落云端
+    if (sessionUseLocal && event.error === "language-not-supported") {
+      if (recogMode === "auto") {
+        localEngineBroken = true;
+        console.warn("[cv] 本地识别不受支持,回落云端");
+        clearClocks();
+        try { recognition.onresult = recognition.onerror = recognition.onend = null; recognition.abort(); } catch { /* noop */ }
+        recognition = null;
+        startRecognition(false);
+        return;
+      }
+      report({ type: "ASR_ERROR", code: "local-unsupported", message: "此设备的本地识别不支持当前语言" });
+      cleanup();
+      return;
+    }
     report({ type: "ASR_ERROR", code: event.error });
     cleanup();
   };

@@ -587,6 +587,24 @@ kbd {
       </div>
       <div class="row">
         <div>
+          <div class="lbl">识别引擎</div>
+          <div class="hint">自动:优先设备本地识别(免翻墙、隐私更佳),不可用自动回落云端</div>
+        </div>
+        <select id="recog-engine">
+          <option value="auto">自动(推荐)</option>
+          <option value="server">Chrome 云端</option>
+          <option value="local">仅本地(实验)</option>
+        </select>
+      </div>
+      <div class="row" id="recog-local-row">
+        <div>
+          <div class="lbl">本地识别语言包 <span class="badge gray" id="rl-badge"><span class="dot"></span><span id="rl-badge-text">检查中…</span></span></div>
+          <div class="hint" id="rl-note">设备端上识别包,下载后无需网络即可识别(支持与否取决于设备/系统)</div>
+        </div>
+        <button class="primary" id="rl-install" hidden>安装语言包</button>
+      </div>
+      <div class="row">
+        <div>
           <div class="lbl">浮动麦克风按钮</div>
           <div class="hint">在每个网页右下角显示,点按即可开始语音输入</div>
         </div>

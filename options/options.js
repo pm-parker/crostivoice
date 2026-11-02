@@ -356,6 +356,7 @@ async function refreshBuiltinNote() {
 async function load() {
   const { settings } = await chrome.runtime.sendMessage({ type: "GET_STATUS" });
   $("language").value = settings.language;
+  $("recog-engine").value = settings.recogEngine || "auto";
   const { floatButton = true } = await chrome.storage.local.get("floatButton");
   $("float-button").checked = !!floatButton;
   $("smart-polish").checked = settings.smartPolish === true;
@@ -372,12 +373,72 @@ async function load() {
   $("ver-chip-about").textContent = `v${manifest.version}`;
   refreshModelStatus();
   refreshBuiltinNote();
+  refreshRecogLocal();
+}
+
+// ---------- 本地识别语言包(端上识别,SpeechRecognition.install) ----------
+// install() 需要真实的用户手势(transient activation),因此探测与安装
+// 都在设置页本地直接调用——不经过 service worker 中转(消息往返会丢手势)。
+let rlBusy = false;
+async function refreshRecogLocal() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const badge = $("rl-badge");
+  const text = $("rl-badge-text");
+  const btn = $("rl-install");
+  const note = $("rl-note");
+  badge.className = "badge gray";
+  if (!SR || typeof SR.available !== "function" || typeof SR.install !== "function") {
+    text.textContent = "此浏览器不支持";
+    note.textContent = "需要 Chrome 149+(当前浏览器没有端上识别 API)";
+    return;
+  }
+  const { language } = await chrome.storage.local.get("language");
+  const lang = String(language || "zh-CN");
+  let status;
+  try {
+    status = await SR.available({ langs: [lang], processLocally: true });
+  } catch {
+    status = "unavailable";
+  }
+  const map = {
+    available: ["已安装 · 可离线识别", "green"],
+    downloading: ["下载中…", "blue"],
+    downloadable: ["未安装(约几十 MB,装后免翻墙)", "gray"],
+    unavailable: ["此设备/语言不支持", "gray"],
+  };
+  const [label, color] = map[status] || [status, "gray"];
+  text.textContent = label;
+  badge.className = `badge ${color}`;
+  btn.hidden = status !== "downloadable";
+  note.textContent =
+    status === "available"
+      ? "设备端上识别包已就绪;「自动」引擎将优先使用它(免翻墙、零上传)"
+      : "设备端上识别包,下载后无需网络即可识别(支持与否取决于设备/系统)";
+  btn.onclick = async () => {
+    if (rlBusy) return;
+    rlBusy = true;
+    btn.disabled = true;
+    text.textContent = "下载中…";
+    badge.className = "badge blue";
+    try {
+      const ok = await SR.install({ langs: [lang], processLocally: true });
+      text.textContent = ok ? "已安装" : "安装未完成";
+      if (!ok) badge.className = "badge gray";
+    } catch (e) {
+      text.textContent = "安装失败:" + String(e.message || e).slice(0, 60);
+      badge.className = "badge red";
+    }
+    btn.disabled = false;
+    rlBusy = false;
+    setTimeout(refreshRecogLocal, 800);
+  };
 }
 
 function collectSettings() {
   return {
     language: $("language").value,
     floatButton: $("float-button").checked,
+    recogEngine: $("recog-engine").value,
     smartPolish: $("smart-polish").checked,
     punctStyle: document.querySelector("input[name='punct']:checked").value,
     punctEngine: document.querySelector("input[name='pengine']:checked").value,
@@ -422,6 +483,7 @@ $("clear-history").addEventListener("click", async (e) => {
 $("export-settings").addEventListener("click", async () => {
   const KEYS = [
     "language",
+      "recogEngine",
     "smartPolish",
     "floatButton",
     "punctStyle",
@@ -448,6 +510,7 @@ $("import-file").addEventListener("change", async (e) => {
     const data = JSON.parse(await file.text());
     const KEYS = [
       "language",
+      "recogEngine",
       "smartPolish",
       "floatButton",
       "punctStyle",

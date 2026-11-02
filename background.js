@@ -8,6 +8,7 @@ const URL_KEY = "voiceUrl"; // reported by the content script (no host perms)
 
 const DEFAULTS = {
   language: "zh-CN",
+  recogEngine: "auto", // 'auto'(本地包可用→端上识别,否则云端)| 'server' | 'local'(实验)
   smartPolish: false, // Chrome 内置 AI 深度整理(需 Gemini Nano;默认关,本地模型才是主路径)
   punctStyle: "cn", // 'cn' | 'en' — 断句标点风格
   punctEngine: "nn", // 'nn'(本地神经标点模型)| 'rules'(规则)
@@ -249,6 +250,7 @@ async function startVoice() {
     punctStyle: settings.punctStyle,
     engine: settings.punctEngine,
     context: Array.isArray(ctx.context) ? ctx.context : [],
+    recogEngine: settings.recogEngine || "auto",
   });
 
   await setState("dictating");
