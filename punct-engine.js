@@ -20,10 +20,36 @@ ort.env.wasm.numThreads = 1;
 ort.env.wasm.proxy = false;
 
 const CACHE_NAME = "crostivoice-punct-v1";
+// 下载源:自建 CDN 优先(国内无翻墙可达),HuggingFace 兜底。
+// Cache key 始终用 HuggingFace 规范 URL —— 已下载用户零迁移零重下;
+// 镜像文件与源站逐字节一致(VPS 上 sha256 校验后上架)。
+const HF_ORIGIN = "https://huggingface.co";
+const MIRROR_ORIGIN = "https://pmparker.net/crostivoice/models";
+
 const MODEL_URL =
-  "https://huggingface.co/ranger810/sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12-int8/resolve/main/model.int8.onnx";
+  HF_ORIGIN +
+  "/ranger810/sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12-int8/resolve/main/model.int8.onnx";
 const TOKENS_URL =
-  "https://huggingface.co/ranger810/sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12-int8/resolve/main/tokens.json";
+  HF_ORIGIN +
+  "/ranger810/sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12-int8/resolve/main/tokens.json";
+
+// 按源顺序尝试;网络失败或非 2xx 换下一个源
+async function fetchWithFallback(canonicalUrl) {
+  const candidates = canonicalUrl.startsWith(HF_ORIGIN)
+    ? [MIRROR_ORIGIN + canonicalUrl.slice(HF_ORIGIN.length), canonicalUrl]
+    : [canonicalUrl];
+  let lastErr = null;
+  for (const url of candidates) {
+    try {
+      const res = await fetch(url);
+      if (res.ok) return res;
+      lastErr = new Error(`HTTP ${res.status} (${new URL(url).hostname})`);
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  throw lastErr || new Error("download failed");
+}
 
 const PUNCT = ["", "", "\uFF0C", "\u3002", "\uFF1F", "\u3001"]; // 1 = none
 const ID_DOT = 3;
@@ -60,9 +86,9 @@ export async function deleteModel() {
   if ("caches" in self) await caches.delete(CACHE_NAME);
 }
 
-// streaming download with progress → Cache API
+// streaming download with progress → Cache API(源:镜像优先,键:规范 URL)
 async function downloadToCache(url, onProgress) {
-  const res = await fetch(url);
+  const res = await fetchWithFallback(url);
   if (!res.ok) throw new Error(`download failed: HTTP ${res.status}`);
   const total = Number(res.headers.get("content-length")) || 0;
   const reader = res.body.getReader();

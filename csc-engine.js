@@ -32,10 +32,44 @@ const FILES = [
   "vocab.txt",
   "onnx/model_quantized.onnx",
 ];
-const REMOTE = (f) => `https://huggingface.co/${REPO}/resolve/main/${f}`;
+// 下载源:自建 CDN 优先(国内无翻墙可达),HuggingFace 兜底。
+// Cache key 始终用 HuggingFace 规范 URL —— 已下载用户零迁移零重下。
+const HF_ORIGIN = "https://huggingface.co";
+const MIRROR_ORIGIN = "https://pmparker.net/crostivoice/models";
+
+const REMOTE = (f) => `${HF_ORIGIN}/${REPO}/resolve/main/${f}`;
+
+async function fetchWithFallback(canonicalUrl) {
+  const candidates = canonicalUrl.startsWith(HF_ORIGIN)
+    ? [MIRROR_ORIGIN + "/" + REPO + "/resolve/main/" + canonicalUrl.split("/resolve/main/")[1], canonicalUrl]
+    : [canonicalUrl];
+  let lastErr = null;
+  for (const url of candidates) {
+    try {
+      const res = await fetch(url);
+      if (res.ok) return res;
+      lastErr = new Error(`HTTP ${res.status} (${new URL(url).hostname})`);
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  throw lastErr || new Error("download failed");
+}
 
 let tokenizer = null;
 let model = null;
+
+// transformers.js v4 在模块加载时捕获 fetch 引用,monkey-patch self.fetch
+// 对它无效(实测:离线加载会直连 HuggingFace 挂起)。官方数据源钩子是
+// env.customCache(match/put)——在离线加载时把 HuggingFace URL 映射到
+// 我们预先下载好的 Cache API 条目。
+env.useCustomCache = true;
+env.customCache = {
+  match: async (url) => (await cachedResponse(String(url))) || undefined,
+  put: async (url, response) => {
+    await (await caches.open(CACHE_NAME)).put(String(url), response);
+  },
+};
 
 export function isCscReady() {
   return !!tokenizer && !!model;
@@ -61,7 +95,7 @@ export async function deleteCsc() {
 }
 
 async function downloadToCache(url, onProgress) {
-  const res = await fetch(url);
+  const res = await fetchWithFallback(url);
   if (!res.ok) throw new Error(`download failed: HTTP ${res.status}`);
   const total = Number(res.headers.get("content-length")) || 0;
   const reader = res.body.getReader();
@@ -83,20 +117,10 @@ async function downloadToCache(url, onProgress) {
 async function loadFromCachePublic() {
   if (isCscReady()) return;
   try {
-    // intercept fetch: serve from Cache API when we have the file (offline),
-    // otherwise pass through (first download)
-    const origFetch = self.fetch;
-    self.fetch = async (url, opts) => {
-      const hit = await cachedResponse(String(url));
-      if (hit) return hit;
-      return origFetch(url, opts);
-    };
-    try {
-      tokenizer = await AutoTokenizer.from_pretrained(REPO);
-      model = await AutoModelForMaskedLM.from_pretrained(REPO, { dtype: "q8" });
-    } finally {
-      self.fetch = origFetch;
-    }
+    // 模型文件已由 installCsc 预下载进 Cache API(规范 URL 为键),
+    // transformers.js 经 env.customCache 读它们(见上方注释),不再联网。
+    tokenizer = await AutoTokenizer.from_pretrained(REPO);
+    model = await AutoModelForMaskedLM.from_pretrained(REPO, { dtype: "q8" });
   } catch (err) {
     tokenizer = null;
     model = null;
