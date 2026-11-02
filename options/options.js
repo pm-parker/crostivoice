@@ -438,18 +438,23 @@ async function refreshRecogLocal() {
         note.textContent += "\n推荐引擎:SenseVoice 本地(228MB,中文质量优、速度 10 倍于 Whisper、自带标点)";
         if (whBtn) {
           whBtn.hidden = false;
-          whBtn.textContent = "下载 SenseVoice 模型";
+          whBtn.dataset.sv = "1"; // 标记:此按钮当前归属 SenseVoice 下载
+          whBtn.textContent = "下载 SenseVoice 模型(228MB)";
           whBtn.onclick = async () => {
             if (rlBusy) return;
             rlBusy = true; whBtn.disabled = true;
-            whBtn.textContent = "下载中…";
+            whBtn.textContent = "下载中… 0%";
             try {
-              await chrome.runtime.sendMessage({ type: "SENSEVOICE_INSTALL_REQ" });
-              toast("SenseVoice 模型已下载");
+              const res = await chrome.runtime.sendMessage({ type: "SENSEVOICE_INSTALL_REQ" });
+              if (res && res.ok === false) {
+                toast("下载失败:" + String(res.error || "").slice(0, 60));
+              } else {
+                toast("SenseVoice 模型下载完成");
+              }
             } catch (e) {
               toast("下载失败:" + String(e.message || e).slice(0, 60));
             }
-            whBtn.textContent = "下载 SenseVoice 模型";
+            whBtn.textContent = "下载 SenseVoice 模型(228MB)";
             whBtn.disabled = false; rlBusy = false;
             setTimeout(refreshRecogLocal, 800);
           };
@@ -591,3 +596,31 @@ setTimeout(() => {
   refreshModelStatus();
   refreshBuiltinNote();
 }, 3000);
+
+// ---------- SenseVoice 下载实时进度 ----------
+// 下载在 offscreen 文档里跑数分钟,modelStatus 每 ~250ms 更新一次;
+// 不监听的话设置页纹丝不动,用户以为"点了没反应"(实测反馈)。
+function renderSvLive() {
+  chrome.storage.local.get("modelStatus").then(({ modelStatus: s }) => {
+    if (!s || !s.svPhase) return;
+    const note = document.getElementById("rl-note");
+    const btn = document.getElementById("rl-install");
+    const owns = btn && btn.dataset.sv === "1";
+    if (s.svPhase === "downloading") {
+      const pct = s.svPct || 0;
+      const loadedMB = s.svPct && s.svLoadedMB ? "(" + s.svLoadedMB + "MB)" : "";
+      if (note) note.textContent = "⏬ SenseVoice 模型下载中… " + pct + "%" + loadedMB + " 约 228MB,下载完成自动就绪,期间可关闭此页";
+      if (owns) { btn.hidden = false; btn.disabled = true; btn.textContent = "下载中… " + pct + "%"; }
+    } else if (s.svPhase === "ready") {
+      if (note) note.textContent = "✅ SenseVoice 本地识别已就绪:「识别引擎」选 SenseVoice 本地,即可免翻墙零上传听写";
+      if (owns) { btn.hidden = false; btn.disabled = true; btn.textContent = "已就绪 ✓"; }
+    } else if (s.svPhase === "error") {
+      if (note) note.textContent = "⚠ SenseVoice 下载失败:" + String(s.message || "未知错误").slice(0, 80);
+      if (owns) { btn.disabled = false; btn.textContent = "重试下载 SenseVoice 模型"; }
+    }
+  });
+}
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === "local" && "modelStatus" in changes) renderSvLive();
+});
+renderSvLive();
