@@ -88,6 +88,37 @@ async function activeTab() {
   return tab;
 }
 
+// offscreen 文档创建后,其模块图(transformers.js + ORT,456KB+)需要
+// 数秒才执行完 onMessage.addListener —— 这期间 sendMessage 报
+// "Could not establish connection"。轮询重试直到监听器就绪或超时。
+// (实测:文档创建后 0~8s 内发送必失败,用户表现是第一次唤起没反应)
+async function sendToOffscreen(message, timeoutMs = 25000) {
+  const deadline = Date.now() + timeoutMs;
+  let recreated = false;
+  for (;;) {
+    try {
+      return await chrome.runtime.sendMessage(message);
+    } catch (e) {
+      if (!String(e?.message || e).includes("Could not establish connection") || Date.now() > deadline) {
+        throw e;
+      }
+      // 重试过半仍无监听器 → 疑似僵尸文档:扩展重载/重装后旧 offscreen
+      // 文档残留(JS 上下文已死,hasDocument() 却为真,Chromium 已知坑,
+      // 实测复现:closeDocument+重建后 3 秒即就绪)。强制重建一次。
+      if (!recreated && Date.now() > deadline - timeoutMs / 2) {
+        recreated = true;
+        try {
+          await chrome.offscreen.closeDocument();
+        } catch {
+          /* 无文档 */
+        }
+        await ensureOffscreen();
+      }
+    }
+    await new Promise((r) => setTimeout(r, 250));
+  }
+}
+
 async function ensureOffscreen() {
   const existed = await chrome.offscreen.hasDocument();
   if (existed) return;
@@ -243,7 +274,7 @@ async function startVoice() {
 
   await ensureOffscreen();
   const settings = await getSettings();
-  await chrome.runtime.sendMessage({
+  await sendToOffscreen({
     type: "ASR_START",
     lang: settings.language,
     dictionary: settings.dictionary,
@@ -262,7 +293,7 @@ async function stopVoice() {
   const { [TAB_KEY]: tabId } = await chrome.storage.session.get(TAB_KEY);
   await setState("processing");
   await badge("…", "#3E63DD");
-  await chrome.runtime.sendMessage({ type: "ASR_STOP" });
+  await sendToOffscreen({ type: "ASR_STOP" });
   if (tabId) {
     await sendToTab(tabId, { type: "VOICE_STATE", state: "processing" });
   }
@@ -390,12 +421,38 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         })();
         break;
       }
+      // Whisper 模型管理(设置页 → SW → offscreen;v0.17.2 前错放 offscreen.js,
+      // 引用了不存在于该上下文的 ensureOffscreen → 下载必失败)
+      case "WHISPER_INSTALL_REQ": {
+        (async () => {
+          try {
+            await ensureOffscreen();
+            const res = await sendToOffscreen({ type: "WHISPER_INSTALL" });
+            sendResponse(res || { ok: true });
+          } catch (err) {
+            sendResponse({ ok: false, error: String(err.message || err) });
+          }
+        })();
+        break;
+      }
+      case "WHISPER_DELETE_REQ": {
+        (async () => {
+          try {
+            await ensureOffscreen();
+            const res = await sendToOffscreen({ type: "WHISPER_DELETE" });
+            sendResponse(res || { ok: true });
+          } catch (err) {
+            sendResponse({ ok: false, error: String(err.message || err) });
+          }
+        })();
+        break;
+      }
       // SenseVoice 模型管理(设置页 → SW → offscreen)
       case "SENSEVOICE_INSTALL_REQ": {
         (async () => {
           try {
             await ensureOffscreen();
-            const res = await chrome.runtime.sendMessage({ type: "SENSEVOICE_INSTALL" });
+            const res = await sendToOffscreen({ type: "SENSEVOICE_INSTALL" });
             sendResponse(res || { ok: true });
           } catch (err) {
             sendResponse({ ok: false, error: String(err.message || err) });
@@ -407,7 +464,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         (async () => {
           try {
             await ensureOffscreen();
-            const res = await chrome.runtime.sendMessage({ type: "SENSEVOICE_DELETE" });
+            const res = await sendToOffscreen({ type: "SENSEVOICE_DELETE" });
             sendResponse(res || { ok: true });
           } catch (err) {
             sendResponse({ ok: false, error: String(err.message || err) });
@@ -454,6 +511,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
       case "ASR_FINAL": {
         await finishWithText(message.text, message.raw);
+        sendResponse({ ok: true });
+        break;
+      }
+      case "OFFSCREEN_BOOT_FAIL": {
+        // offscreen 模块图加载失败(语法错误等)——落盘供诊断 + 控制台高亮
+        console.error("[cv] offscreen 启动失败:", message.error);
+        await chrome.storage.session.set({ offscreenBootFail: message.error });
         sendResponse({ ok: true });
         break;
       }

@@ -1016,7 +1016,9 @@ async function finalizeNow() {
   report({ type: "ASR_FINAL", text, raw });
 }
 
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+// 监听器经由 offscreen.html 的轻量缓冲挂载(见该文件注释):重模块加载
+// 期间消息先入队,加载完成后回放 —— 首次唤起不再竞态。
+const __cvListener = (message, _sender, sendResponse) => {
   if (message?.type === "ASR_START") {
     // 会话切换:旧会话(收尾中或活跃)强制立即提交,再开新会话
     if (active || finishing) stop(true);
@@ -1069,28 +1071,6 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       await deleteCsc();
       await reportModelStatus({ cscPhase: "not-installed", cscPct: 0 });
       sendResponse({ ok: true });
-    })();
-    return true;
-   else if (message?.type === "WHISPER_INSTALL_REQ") {
-    (async () => {
-      try {
-        await ensureOffscreen();
-        const res = await chrome.runtime.sendMessage({ type: "WHISPER_INSTALL" });
-        sendResponse(res || { ok: true });
-      } catch (err) {
-        sendResponse({ ok: false, error: String(err.message || err) });
-      }
-    })();
-    return true;
-  } else if (message?.type === "WHISPER_DELETE_REQ") {
-    (async () => {
-      try {
-        await ensureOffscreen();
-        const res = await chrome.runtime.sendMessage({ type: "WHISPER_DELETE" });
-        sendResponse(res || { ok: true });
-      } catch (err) {
-        sendResponse({ ok: false, error: String(err.message || err) });
-      }
     })();
     return true;
   } else if (message?.type === "SENSEVOICE_INSTALL") {
@@ -1160,4 +1140,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
   return false; // sync responses only
-});
+};
+if (typeof self.__cvSetListener === "function") {
+  self.__cvSetListener(__cvListener);
+} else {
+  // 直接以 offscreen.js 身份打开时(如调试标签页)无缓冲宿主,自行注册
+  chrome.runtime.onMessage.addListener(__cvListener);
+}
