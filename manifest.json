@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "CrostiVoice 语音输入",
-  "version": "0.15.1",
+  "version": "0.16.0",
   "description": "点一下搜索键+A 开始说话,停顿自动断句上屏。纯语音输入,智能标点,热词纠错,识别简繁中文、英日韩。",
   "minimum_chrome_version": "116",
   "icons": {

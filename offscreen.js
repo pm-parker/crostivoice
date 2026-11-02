@@ -18,6 +18,14 @@ import {
   deleteCsc,
   isCscCached,
 } from "./csc-engine.js";
+import {
+  isWhisperReady,
+  installWhisper,
+  tryInitWhisper,
+  deleteWhisper,
+  isWhisperCached,
+  WhisperSession,
+} from "./whisper-engine.js";
 
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 
@@ -626,7 +634,7 @@ async function start({ lang, dictionary, punctStyle: style, engine, context, rec
   // local:强制本地(实验,失败显式报错)。桌面 Linux 实测:包可安装但
   // 会话报 language-not-supported——auto 模式遇到此错误自动回落云端并
   // 记住(本浏览器生命周期内不再尝试)。
-  recogMode = recogEngine === "server" || recogEngine === "local" ? recogEngine : "auto";
+  recogMode = recogEngine === "server" || recogEngine === "local" || recogEngine === "whisper" ? recogEngine : "auto";
   let useLocal = false;
   if (recogMode === "local") {
     localLangTag = String(lang || "zh-CN"); // 强制本地:直接用用户语言
@@ -645,7 +653,59 @@ async function start({ lang, dictionary, punctStyle: style, engine, context, rec
       }
     }
   }
+  if (recogMode === "whisper") {
+    ensureWhisperEngine();
+    startWhisperRecognition();
+    return;
+  }
   startRecognition(useLocal);
+}
+
+async function ensureWhisperEngine() {
+  if (isWhisperReady()) return;
+  try { await tryInitWhisper(); } catch { /* best effort */ }
+}
+
+function startWhisperRecognition() {
+  sessionUseLocal = false; // 走 Whisper(非 SR)
+  recognition = new WhisperSession();
+  recognition.lang = sessionLang || "zh-CN";
+  recognition.onresult = (event) => {
+    for (let i = event.resultIndex; i < event.results.length; i++) {
+      const r = event.results[i];
+      if (r.isFinal) {
+        const primary = r[0].transcript;
+        if (primary && primary.trim()) segments.push({ primary, alts: [] });
+        lastInterim = "";
+      }
+    }
+    const finalPart = punctuate(segments.map((s) => s.primary));
+    const live = finalPart.trim();
+    if (live || segments.length) report({ type: "ASR_INTERIM", text: live });
+    noteTranscriptActivity();
+  };
+  recognition.onerror = (event) => {
+    report({ type: "ASR_ERROR", code: event.error || "whisper-error", message: event.message });
+    cleanup();
+  };
+  recognition.onend = () => {
+    // Whisper 会话结束(onend 由 stop/abort 触发,不停计时器)
+  };
+  recognition.onspeechstart = () => { armWaitTimer(); };
+  recognition.onspeechend = () => { rearmGapTimer(); };
+
+  try {
+    recognition.start();
+    active = true;
+    clearClocks();
+    armWaitTimer();
+    maxTimer = setTimeout(() => {
+      maxTimer = null;
+      if (active) stop();
+    }, MAX_MS);
+  } catch (err) {
+    report({ type: "ASR_ERROR", code: "start-failed", message: String(err) });
+  }
 }
 
 let sessionLang = "zh-CN"; // 本会话用户设置的识别语言
@@ -791,8 +851,7 @@ function cleanup() {
   if (recognition) {
     try {
       recognition.onresult = recognition.onerror = recognition.onend = null;
-      recognition.onspeechstart = recognition.onsoundstart = recognition.onsoundend = null;
-      recognition.onspeechend = recognition.onaudioend = null;
+      recognition.onspeechstart = recognition.onspeechend = null;
       recognition.stop();
     } catch {
       /* noop */
@@ -943,6 +1002,51 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     (async () => {
       await deleteCsc();
       await reportModelStatus({ cscPhase: "not-installed", cscPct: 0 });
+      sendResponse({ ok: true });
+    })();
+    return true;
+  } else if (message?.type === "WHISPER_INSTALL_REQ") {
+    (async () => {
+      try {
+        await ensureOffscreen();
+        const res = await chrome.runtime.sendMessage({ type: "WHISPER_INSTALL" });
+        sendResponse(res || { ok: true });
+      } catch (err) {
+        sendResponse({ ok: false, error: String(err.message || err) });
+      }
+    })();
+    return true;
+  } else if (message?.type === "WHISPER_DELETE_REQ") {
+    (async () => {
+      try {
+        await ensureOffscreen();
+        const res = await chrome.runtime.sendMessage({ type: "WHISPER_DELETE" });
+        sendResponse(res || { ok: true });
+      } catch (err) {
+        sendResponse({ ok: false, error: String(err.message || err) });
+      }
+    })();
+    return true;
+  } else if (message?.type === "WHISPER_INSTALL") {
+    (async () => {
+      try {
+        reportModelStatus({ whPhase: "downloading", whPct: 0 });
+        await installWhisper(async (loaded, total, stage) => {
+          const pct = total ? Math.min(100, Math.round((loaded / total) * 100)) : 0;
+          reportModelStatus({ whPhase: "downloading", whPct: pct, whStage: stage });
+        });
+        await reportModelStatus({ whPhase: "ready", whPct: 100 });
+        sendResponse({ ok: true });
+      } catch (err) {
+        await reportModelStatus({ whPhase: "error", message: String(err.message || err).slice(0, 120) });
+        sendResponse({ ok: false, error: String(err.message || err) });
+      }
+    })();
+    return true;
+  } else if (message?.type === "WHISPER_DELETE") {
+    (async () => {
+      await deleteWhisper();
+      reportModelStatus({ whPhase: "not-installed", whPct: 0 });
       sendResponse({ ok: true });
     })();
     return true;

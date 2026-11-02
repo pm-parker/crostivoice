@@ -414,6 +414,42 @@ async function refreshRecogLocal() {
     status === "available"
       ? "设备端上识别包已就绪;「自动」引擎将优先使用它(免翻墙、零上传)"
       : "设备端上识别包,下载后无需网络即可识别(支持与否取决于设备/系统)";
+
+  // Whisper 模型状态(独立于 SODA 包)
+  try {
+    const whRes = await chrome.runtime.sendMessage({ type: "MODEL_STATUS_REQ" });
+    const whStatus = whRes?.status?.whPhase;
+    const whBadge = $("rl-badge");
+    const whText = $("rl-badge-text");
+    const whBtn = $("rl-install");
+    // 若 SODA 状态行已有内容,Whisper 状态追加到 note
+    if (whStatus === "ready") {
+      note.textContent += "\n✅ Whisper 本地识别模型已就绪(引擎选「Whisper 本地」即可免翻墙使用)";
+    } else if (whStatus === "downloading") {
+      note.textContent += `\n⏬ Whisper 模型下载中… ${whRes?.status?.whPct || 0}%`;
+    } else {
+      // SODA 不支持时,Whisper 是替代方案 → 显示下载按钮
+      if (status === "unavailable") {
+        note.textContent += "\n此设备不支持端上识别包 → 可下载 Whisper 模型(约 38MB)实现免翻墙识别";
+        if (whBtn) {
+          whBtn.hidden = false;
+          whBtn.textContent = "下载 Whisper 模型";
+          whBtn.onclick = async () => {
+            if (rlBusy) return;
+            rlBusy = true; whBtn.disabled = true;
+            try {
+              await chrome.runtime.sendMessage({ type: "WHISPER_INSTALL_REQ" });
+              toast("Whisper 模型已下载");
+            } catch (e) {
+              toast("下载失败:" + String(e.message || e).slice(0, 60));
+            }
+            whBtn.disabled = false; rlBusy = false;
+            setTimeout(refreshRecogLocal, 800);
+          };
+        }
+      }
+    }
+  } catch { /* best effort */ }
   btn.onclick = async () => {
     if (rlBusy) return;
     rlBusy = true;
