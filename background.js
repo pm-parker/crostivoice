@@ -349,8 +349,22 @@ async function finishWithText(text, raw) {
 chrome.commands.onCommand.addListener(async (command) => {
   if (command !== "toggle-voice") return;
   const state = await getState();
-  if (state === "idle") await startVoice();
-  else if (state === "dictating" || state === "processing") await stopVoice();
+  try {
+    if (state === "idle") await startVoice();
+    else if (state === "dictating" || state === "processing") await stopVoice();
+  } catch (err) {
+    console.error("[cv] voice toggle failed:", err);
+    await setState("idle");
+    await badge("✕");
+    setTimeout(() => badge(""), 1800);
+    const { [TAB_KEY]: tabId } = await chrome.storage.session.get(TAB_KEY);
+    if (tabId) {
+      await sendToTab(tabId, {
+        type: "VOICE_HINT",
+        message: "语音引擎连接失败(" + String(err?.message || err).slice(0, 60) + ")。请在 chrome://extensions 重载 CrostiVoice 后重试。",
+      });
+    }
+  }
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -359,8 +373,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       // from popup / floating button / keyboard tap
       case "POPUP_ACTION": {
         const state = await getState();
-        if (state === "idle") await startVoice();
-        else await stopVoice();
+        try {
+          if (state === "idle") await startVoice();
+          else await stopVoice();
+        } catch (err) {
+          console.error("[cv] voice toggle failed:", err);
+          await setState("idle");
+        }
         sendResponse({ ok: true, state: await getState() });
         break;
       }
@@ -377,7 +396,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         (async () => {
           try {
             await ensureOffscreen();
-            const res = await chrome.runtime.sendMessage({ type: "MODEL_INSTALL" });
+            const res = await sendToOffscreen({ type: "MODEL_INSTALL" });
             sendResponse(res || { ok: true });
           } catch (err) {
             sendResponse({ ok: false, error: String(err.message || err) });
@@ -389,7 +408,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         (async () => {
           try {
             await ensureOffscreen();
-            const res = await chrome.runtime.sendMessage({ type: "MODEL_DELETE" });
+            const res = await sendToOffscreen({ type: "MODEL_DELETE" });
             sendResponse(res || { ok: true });
           } catch (err) {
             sendResponse({ ok: false, error: String(err.message || err) });
@@ -401,7 +420,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         (async () => {
           try {
             await ensureOffscreen();
-            const res = await chrome.runtime.sendMessage({ type: "CSC_INSTALL" });
+            const res = await sendToOffscreen({ type: "CSC_INSTALL" });
             sendResponse(res || { ok: true });
           } catch (err) {
             sendResponse({ ok: false, error: String(err.message || err) });
@@ -413,7 +432,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         (async () => {
           try {
             await ensureOffscreen();
-            const res = await chrome.runtime.sendMessage({ type: "CSC_DELETE" });
+            const res = await sendToOffscreen({ type: "CSC_DELETE" });
             sendResponse(res || { ok: true });
           } catch (err) {
             sendResponse({ ok: false, error: String(err.message || err) });
@@ -476,7 +495,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         (async () => {
           try {
             await ensureOffscreen();
-            const res = await chrome.runtime.sendMessage({ type: "MODEL_CHECK" });
+            const res = await sendToOffscreen({ type: "MODEL_CHECK" });
             const { modelStatus } = await chrome.storage.local.get("modelStatus");
             sendResponse({ ok: true, ...res, status: modelStatus || null });
           } catch (err) {

@@ -47,7 +47,7 @@ with zipfile.ZipFile(out, 'w', zipfile.ZIP_DEFLATED, compresslevel=6) as z:
                 for f in files:
                     if not f.startswith('.'):
                         z.write(os.path.join(root, f))
-# 打包自检:zip 内每个 JS 的静态 import 都必须能在 zip 内解析
+# 打包自检 1:zip 内每个 JS 的静态 import 都必须能在 zip 内解析
 import re
 with zipfile.ZipFile(out) as zc:
   names = set(zc.namelist())
@@ -60,8 +60,17 @@ with zipfile.ZipFile(out) as zc:
         target = os.path.normpath(os.path.join(os.path.dirname(n), m.group(1))).replace('\\', '/')
         if target not in names and target + '.js' not in names:
             bad.append(f'{n} → {m.group(1)} (zip 内缺失!)')
+  # 打包自检 2:扩展 HTML 禁止内联脚本(MV3 默认 CSP script-src 'self',
+  # 内联 script 被静默拒执行——v0.17.3 的 offscreen 因此全灭)。先剥注释再查。
+  for n in names:
+    if not n.endswith('.html'):
+        continue
+    html = zc.read(n).decode('utf-8', errors='replace')
+    html = re.sub(r'<!--.*?-->', '', html, flags=re.S)
+    if re.search(r'<script(?![^>]*\bsrc=)[^>]*>', html):
+        bad.append(f'{n}: 含内联 script 标签,会被 MV3 CSP 拒执行!')
 if bad:
-    print('✗ import 自检失败: ' + ' | '.join(bad), file=sys.stderr)
+    print('✗ 打包自检失败: ' + ' | '.join(bad), file=sys.stderr)
     sys.exit(1)
 print(f'built {out} ({len(names)} files, import 自检通过)')
 PY

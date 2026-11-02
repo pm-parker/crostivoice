@@ -2,51 +2,9 @@
 <html lang="zh-CN">
 <head><meta charset="utf-8"><title>CrostiVoice ASR</title></head>
 <body>
-<script type="module">
-// 启动自检 + 消息缓冲。
-//
-// offscreen 文档的模块图(transformers.js + ORT,456KB+)冷加载可达数秒
-// 甚至更久(实测:冷缓存下监听器迟迟不注册,SW 发来的 ASR_START 全部
-// "Could not establish connection",用户表现是"第一次唤起没反应")。
-// 这里把监听器从重模块中剥离:先注册轻量缓冲,消息入队;offscreen.js
-// 加载完成后挂载真处理器并回放队列 —— 消息零丢失,首按即响应。
-//
-// 另:offscreen 文档没有可见控制台,模块加载失败(语法错误/import 404/
-// 顶层异常)完全静默(v0.17.0-beta.2~v0.17.2 三个坏包的根因链之一),
-// 失败显式上报 SW 落盘。
-let realListener = null;
-const queue = [];
-
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (realListener) return realListener(message, sender, sendResponse);
-  queue.push([message, sender, sendResponse]);
-  return true; // 模块加载期间保持消息通道打开
-});
-
-self.__cvSetListener = (fn) => {
-  realListener = fn;
-  const pending = queue.splice(0);
-  for (const [m, s, sr] of pending) {
-    try {
-      fn(m, s, sr);
-    } catch (err) {
-      console.warn("[cv] 回放缓存消息失败:", err);
-    }
-  }
-};
-
-try {
-  await import("./offscreen.js");
-} catch (e) {
-  try {
-    await chrome.runtime.sendMessage({
-      type: "OFFSCREEN_BOOT_FAIL",
-      error: String(e?.stack || e).slice(0, 800),
-    });
-  } catch {
-    /* 上报通道也挂了就无能为力 */
-  }
-}
-</script>
+<!-- ⚠️ MV3 扩展页面默认 CSP 是 script-src 'self',禁止一切内联脚本——
+     v0.17.3 曾把启动引导写成内联 script 标签,被 CSP 整块拒执行,offscreen
+     全灭("Could not establish connection")。扩展页面的 JS 必须外置。 -->
+<script type="module" src="offscreen-boot.js"></script>
 </body>
 </html>
