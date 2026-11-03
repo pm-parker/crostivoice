@@ -413,14 +413,26 @@ async function refreshRecogLocal() {
     downloadable: ["未安装(约几十 MB,装后免翻墙)", "gray"],
     unavailable: ["此设备/语言不支持", "gray"],
   };
-  const [label, color] = map[status] || [status, "gray"];
+  let [label, color] = map[status] || [status, "gray"];
+  // SODA 不可用是多数设备的常态,徽章显示这个探测结果会把用户吓住
+  // (实测连续多轮被误读为"下载失败")。SenseVoice 未就绪时显示中性状态,
+  // 就绪/下载中由 renderSvLive 接管徽章;SODA 细节移入 note。
+  let sodaUnavailable = false;
+  if (status === "unavailable") {
+    sodaUnavailable = true;
+    label = "本地引擎未安装";
+    color = "gray";
+  }
   text.textContent = label;
   badge.className = `badge ${color}`;
   btn.hidden = status !== "downloadable";
   note.textContent =
     status === "available"
       ? "设备端上识别包已就绪;「自动」引擎将优先使用它(免翻墙、零上传)"
+      : sodaUnavailable
+      ? "谷歌端上识别包在此设备不可用(多数设备如此)——推荐下载 SenseVoice 本地模型,能力更强且完全离线"
       : "设备端上识别包,下载后无需网络即可识别(支持与否取决于设备/系统)";
+  window.__sodaUnavailable = sodaUnavailable;
 
   // Whisper 模型状态(独立于 SODA 包)
   try {
@@ -443,6 +455,7 @@ async function refreshRecogLocal() {
       // SODA 不支持时,Whisper 是替代方案 → 显示下载按钮
       if (status === "unavailable") {
         note.textContent += "\n推荐引擎:SenseVoice 本地(228MB,中文质量优、速度 10 倍于 Whisper、自带标点)";
+        renderSvLive && renderSvLive();
         if (whBtn) {
           whBtn.hidden = false;
           whBtn.dataset.sv = "1"; // 标记:此按钮当前归属 SenseVoice 下载
