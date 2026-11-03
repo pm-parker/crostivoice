@@ -356,7 +356,13 @@ async function refreshBuiltinNote() {
 async function load() {
   const { settings } = await chrome.runtime.sendMessage({ type: "GET_STATUS" });
   $("language").value = settings.language;
-  $("recog-engine").value = settings.recogEngine || "auto";
+  // 旧值归一化:local(SODA,设备普遍不可用)与 whisper(已被 SenseVoice
+  // 取代)不再作为可选项,读取时归一到 auto
+  const legacyEngine = { local: "auto", whisper: "auto" };
+  const engineVal = legacyEngine[settings.recogEngine] || settings.recogEngine || "auto";
+  const engineRadio = document.querySelector(`input[name="recog-engine"][value="${engineVal}"]`);
+  if (engineRadio) engineRadio.checked = true;
+  updateEngineHint();
   const { floatButton = true } = await chrome.storage.local.get("floatButton");
   $("float-button").checked = !!floatButton;
   $("smart-polish").checked = settings.smartPolish === true;
@@ -523,7 +529,7 @@ function collectSettings() {
   return {
     language: $("language").value,
     floatButton: $("float-button").checked,
-    recogEngine: $("recog-engine").value,
+    recogEngine: document.querySelector('input[name="recog-engine"]:checked')?.value || "auto",
     smartPolish: $("smart-polish").checked,
     punctStyle: document.querySelector("input[name='punct']:checked").value,
     punctEngine: document.querySelector("input[name='pengine']:checked").value,
@@ -620,6 +626,22 @@ $("import-file").addEventListener("change", async (e) => {
 $("lnk-shortcuts").addEventListener("click", async (e) => {
   e.preventDefault();
   await chrome.tabs.create({ url: "chrome://extensions/shortcuts" });
+});
+
+
+// 识别引擎三选的动态说明(选中项变化即更新)
+const ENGINE_HINTS = {
+  auto: "云端可达时用谷歌云端(质量优先);断网/被墙自动转 SenseVoice 本地继续",
+  sensevoice: "完全离线·零上传·免翻墙;中文质量优、自带标点(需下方模型就绪)",
+  server: "始终走谷歌云端,需要网络可达(国内需翻墙)",
+};
+function updateEngineHint() {
+  const el = document.getElementById("engine-hint");
+  const val = document.querySelector('input[name="recog-engine"]:checked')?.value;
+  if (el && val) el.textContent = ENGINE_HINTS[val] || "";
+}
+document.querySelectorAll('input[name="recog-engine"]').forEach((r) => {
+  r.addEventListener("change", updateEngineHint);
 });
 
 load();

@@ -246,6 +246,9 @@ select:focus-visible, input:focus-visible, textarea:focus-visible, button:focus-
 }
 
 /* segmented control (radio-based) */
+.row-col { flex-direction: column; align-items: stretch; gap: 10px; }
+.seg-wide { justify-content: flex-start; }
+.seg-wide label { padding: 6px 14px; white-space: nowrap; }
 .seg {
   display: inline-flex;
   padding: 2px;
@@ -585,25 +588,23 @@ kbd {
           <option value="ko-KR">한국어</option>
         </select>
       </div>
-      <div class="row">
+      <div class="row row-col">
         <div>
           <div class="lbl">识别引擎</div>
-          <div class="hint">自动:优先设备本地识别(免翻墙、隐私更佳),不可用自动回落云端</div>
+          <div class="hint" id="engine-hint">云端可达时用谷歌云端(质量优先);断网自动转本地继续</div>
         </div>
-        <select id="recog-engine">
-          <option value="auto">自动(云端优先,断网自动转本地)</option>
-          <option value="server">Chrome 云端</option>
-          <option value="local">仅本地(实验)</option>
-          <option value="whisper">Whisper 本地(实验)</option>
-          <option value="sensevoice">SenseVoice 本地(推荐实验)</option>
-        </select>
+        <div class="seg seg-wide" role="radiogroup" aria-label="识别引擎">
+          <input type="radio" name="recog-engine" value="auto" id="re-auto" checked><label for="re-auto">自动</label>
+          <input type="radio" name="recog-engine" value="sensevoice" id="re-sv"><label for="re-sv">SenseVoice 本地</label>
+          <input type="radio" name="recog-engine" value="server" id="re-server"><label for="re-server">Chrome 云端</label>
+        </div>
       </div>
       <div class="row" id="recog-local-row">
         <div>
-          <div class="lbl">本地识别语言包 <span class="badge gray" id="rl-badge"><span class="dot"></span><span id="rl-badge-text">检查中…</span></span></div>
-          <div class="hint" id="rl-note">设备端上识别包,下载后无需网络即可识别(支持与否取决于设备/系统)</div>
+          <div class="lbl">SenseVoice 离线模型 <span class="badge gray" id="rl-badge"><span class="dot"></span><span id="rl-badge-text">检查中…</span></span></div>
+          <div class="hint" id="rl-note">下载后完全离线识别:免翻墙、零上传、自带标点</div>
         </div>
-        <button class="primary" id="rl-install" hidden>安装语言包</button>
+        <button class="primary" id="rl-install" hidden>下载模型</button>
       </div>
       <div class="row">
         <div>
