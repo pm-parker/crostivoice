@@ -609,6 +609,7 @@ async function start({ lang, dictionary, punctStyle: style, engine, context, rec
   // local:强制本地(实验,失败显式报错)。桌面 Linux 实测:包可安装但
   // 会话报 language-not-supported——auto 模式遇到此错误自动回落云端并
   // 记住(本浏览器生命周期内不再尝试)。
+  sessionLocalFallbackTried = false;
   recogMode = recogEngine === "server" || recogEngine === "local" || recogEngine === "whisper" || recogEngine === "sensevoice" ? recogEngine : "auto";
   let useLocal = false;
   if (recogMode === "local") {
@@ -626,6 +627,20 @@ async function start({ lang, dictionary, punctStyle: style, engine, context, rec
       } catch {
         /* API 不可用 → 云端 */
       }
+    }
+  }
+  // auto 的环境感知:云端可达 → 云端(质量优先);不可达且 SenseVoice
+  // 就绪 → 本地(连续性优先)。探测结果缓存 60s,避免每次听写都等网络。
+  if (recogMode === "auto" && !useLocal) {
+    const reachable = await cloudReachable();
+    if (!reachable) {
+      await ensureSenseVoiceEngine();
+      if (isSenseVoiceReady()) {
+        report({ type: "ASR_HINT", message: "云端不可达,本次自动使用 SenseVoice 本地识别" });
+        startSenseVoiceRecognition();
+        return;
+      }
+      // SenseVoice 未就绪:仍走云端(错误照常上浮),不静默失败
     }
   }
   // 本地引擎(whisper/sensevoice)须模型就绪才可用;未就绪(用户没下载/
@@ -741,11 +756,39 @@ function startWhisperRecognition() {
   }
 }
 
+// 谷歌云端可达性探测:Chrome 语音识别走谷歌服务器;generate_204 是
+// 标准连通性检查端点。no-cors 拿不到状态码,但"能 resolve"即视为可达,
+// 被墙/断网时超时 reject。缓存 60s——听写高频,不能每次都等网络。
+let cloudProbeCache = { ok: null, at: 0 };
+async function cloudReachable() {
+  const now = Date.now();
+  if (cloudProbeCache.ok !== null && now - cloudProbeCache.at < 60000) {
+    return cloudProbeCache.ok;
+  }
+  let ok = false;
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 2500);
+    await fetch("https://www.google.com/generate_204", {
+      mode: "no-cors",
+      cache: "no-store",
+      signal: ctrl.signal,
+    });
+    clearTimeout(timer);
+    ok = true;
+  } catch {
+    ok = false;
+  }
+  cloudProbeCache = { ok, at: now };
+  return ok;
+}
+
 let sessionLang = "zh-CN"; // 本会话用户设置的识别语言
 let recogMode = "auto"; // auto | server | local(每会话)
 let localEngineBroken = false; // 本地引擎在本浏览器确认不可用(如桌面 Linux)
 let localLangTag = ""; // 探测通过的本地语言标签
 let sessionUseLocal = false; // 当前会话实际是否走本地
+let sessionLocalFallbackTried = false; // auto 会话内已尝试过本地回落(防循环)
 
 function startRecognition(useLocal) {
   sessionUseLocal = useLocal;
@@ -825,6 +868,31 @@ function startRecognition(useLocal) {
     // no-speech/aborted are routine: Chrome fires them on silence and on
     // stop(). Only real failures are surfaced to the user.
     if (event.error === "no-speech" || event.error === "aborted") return;
+    // 会话中途云端断网(探测时可达,说话时掉线/翻墙断开):auto 模式且
+    // SenseVoice 就绪 → 无缝转本地继续(每会话一次,防循环)
+    if (
+      recogMode === "auto" &&
+      !sessionUseLocal &&
+      event.error === "network" &&
+      !sessionLocalFallbackTried
+    ) {
+      sessionLocalFallbackTried = true;
+      cloudProbeCache = { ok: false, at: Date.now() };
+      ensureSenseVoiceEngine().then(() => {
+        if (isSenseVoiceReady()) {
+          console.warn("[cv] 云端会话中断,转 SenseVoice 本地继续");
+          clearClocks();
+          try {
+            recognition.onresult = recognition.onerror = recognition.onend = null;
+            recognition.abort();
+          } catch { /* noop */ }
+          recognition = null;
+          report({ type: "ASR_HINT", message: "云端连接中断,已自动转到本地识别,请继续说话" });
+          startSenseVoiceRecognition();
+        }
+      });
+      return;
+    }
     // 本地引擎不被平台支持(实测桌面 Linux):auto 模式自动回落云端
     if (sessionUseLocal && event.error === "language-not-supported") {
       if (recogMode === "auto") {
