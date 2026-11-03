@@ -403,7 +403,9 @@ async function refreshRecogLocal() {
   const lang = String(language || "zh-CN");
   let status;
   try {
-    status = await SR.available({ langs: [lang], processLocally: true });
+    // ?soda=<status> 仅用于 E2E 测试强制覆盖探测结果(生产无人带此参数)
+    status = new URLSearchParams(location.search).get("soda") ||
+      (await SR.available({ langs: [lang], processLocally: true }));
   } catch {
     status = "unavailable";
   }
@@ -487,24 +489,34 @@ async function refreshRecogLocal() {
       }
     }
   } catch { /* best effort */ }
-  btn.onclick = async () => {
-    if (rlBusy) return;
-    rlBusy = true;
-    btn.disabled = true;
-    text.textContent = "下载中…";
-    badge.className = "badge blue";
-    try {
-      const ok = await SR.install({ langs: [lang], processLocally: true });
-      text.textContent = ok ? "已安装" : "安装未完成";
-      if (!ok) badge.className = "badge gray";
-    } catch (e) {
-      text.textContent = "安装失败:" + String(e.message || e).slice(0, 60);
-      badge.className = "badge red";
-    }
-    btn.disabled = false;
-    rlBusy = false;
-    setTimeout(refreshRecogLocal, 800);
-  };
+  // 【根因修复】SODA 安装处理器不得覆盖 SenseVoice 接管的按钮:
+  // SODA 不可用的设备上,上方 unavailable 分支已把本按钮接给 SenseVoice
+  // 下载,而旧代码在此无条件重挂 SODA 安装 → 用户每次点击都在尝试安装
+  // 设备不支持的 SODA 包,秒现「安装未完成」(beta.2 以来"点击下载无效"
+  // 的真正根因,实测确认)。
+  if (btn.dataset.sv !== "1") {
+    btn.onclick = async () => {
+      if (rlBusy) return;
+      rlBusy = true;
+      btn.disabled = true;
+      text.textContent = "下载中…";
+      badge.className = "badge blue";
+      try {
+        const ok = await SR.install({ langs: [lang], processLocally: true });
+        text.textContent = ok ? "已安装" : "安装未完成";
+        if (!ok) badge.className = "badge gray";
+      } catch (e) {
+        text.textContent = "安装失败:" + String(e.message || e).slice(0, 60);
+        badge.className = "badge red";
+      }
+      btn.disabled = false;
+      rlBusy = false;
+      setTimeout(refreshRecogLocal, 800);
+    };
+  }
+  // 最后统一按 SenseVoice 真实状态收尾(就绪/下载分支此前只改 note
+  // 不改徽章,下载完成瞬间刷新会把徽章留在"本地引擎未安装",实测竞态)
+  renderSvLive && renderSvLive();
 }
 
 function collectSettings() {
