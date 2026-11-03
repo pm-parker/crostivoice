@@ -443,7 +443,9 @@ async function refreshRecogLocal() {
           whBtn.onclick = async () => {
             if (rlBusy) return;
             rlBusy = true; whBtn.disabled = true;
-            whBtn.textContent = "下载中… 0%";
+            whBtn.textContent = "准备中…";
+            const noteEl0 = document.getElementById("rl-note");
+            if (noteEl0) noteEl0.textContent = "正在启动下载引擎(首次或更新后可能需十几秒)…";
             try {
               const res = await chrome.runtime.sendMessage({ type: "SENSEVOICE_INSTALL_REQ" });
               if (res && res.ok === false) {
@@ -608,11 +610,27 @@ function renderSvLive() {
     if (!s || !s.svPhase) return;
     const note = document.getElementById("rl-note");
     const btn = document.getElementById("rl-install");
+    const badge = document.getElementById("rl-badge");
+    const badgeText = document.getElementById("rl-badge-text");
     const owns = btn && btn.dataset.sv === "1";
+    // 徽章反映有效本地识别能力:SenseVoice 就绪/下载中优先于 SODA 探测
+    // 结果(实测用户把常驻的"此设备/语言不支持"误读为下载失败)
+    if (badge && badgeText) {
+      if (s.svPhase === "downloading") {
+        badgeText.textContent = "SenseVoice 下载中 " + (s.svPct || 0) + "%";
+        badge.className = "badge blue";
+      } else if (s.svPhase === "ready" || s.svPhase === "cached") {
+        badgeText.textContent = "SenseVoice 就绪(可离线)";
+        badge.className = "badge green";
+      } else if (s.svPhase === "error") {
+        badgeText.textContent = "SenseVoice 下载失败";
+        badge.className = "badge";
+      }
+    }
     if (s.svPhase === "downloading") {
       const pct = s.svPct || 0;
-      const loadedMB = s.svPct && s.svLoadedMB ? "(" + s.svLoadedMB + "MB)" : "";
-      if (note) note.textContent = "⏬ SenseVoice 模型下载中… " + pct + "%" + loadedMB + " 约 228MB,下载完成自动就绪,期间可关闭此页";
+      const loadedMB = s.svPct && s.svLoadedMB ? "(" + s.svLoadedMB + ")" : "";
+      if (note) note.textContent = "⏬ SenseVoice 模型下载中… " + pct + "%" + loadedMB + ",下载完成自动就绪,期间可关闭此页";
       if (owns) { btn.hidden = false; btn.disabled = true; btn.textContent = "下载中… " + pct + "%"; }
     } else if (s.svPhase === "ready" || s.svPhase === "cached") {
       if (note) note.textContent = "✅ SenseVoice 模型已就绪:「识别引擎」选 SenseVoice 本地,即可免翻墙零上传听写" + (s.svPhase === "cached" ? "(首次听写时加载,若失败自动用云端)" : "");

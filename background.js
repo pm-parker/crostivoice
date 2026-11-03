@@ -92,8 +92,9 @@ async function activeTab() {
 // 数秒才执行完 onMessage.addListener —— 这期间 sendMessage 报
 // "Could not establish connection"。轮询重试直到监听器就绪或超时。
 // (实测:文档创建后 0~8s 内发送必失败,用户表现是第一次唤起没反应)
-async function sendToOffscreen(message, timeoutMs = 25000) {
+async function sendToOffscreen(message, timeoutMs = 25000, recreateAfterMs = timeoutMs / 2) {
   const deadline = Date.now() + timeoutMs;
+  const recreateAt = Date.now() + recreateAfterMs;
   let recreated = false;
   for (;;) {
     try {
@@ -102,10 +103,11 @@ async function sendToOffscreen(message, timeoutMs = 25000) {
       if (!String(e?.message || e).includes("Could not establish connection") || Date.now() > deadline) {
         throw e;
       }
-      // 重试过半仍无监听器 → 疑似僵尸文档:扩展重载/重装后旧 offscreen
-      // 文档残留(JS 上下文已死,hasDocument() 却为真,Chromium 已知坑,
-      // 实测复现:closeDocument+重建后 3 秒即就绪)。强制重建一次。
-      if (!recreated && Date.now() > deadline - timeoutMs / 2) {
+      // 疑似僵尸文档:扩展重载/重装后旧 offscreen 文档残留(JS 上下文已死,
+      // hasDocument() 却为真,Chromium 已知坑,实测:closeDocument+重建后
+      // 3 秒即就绪)。安装类操作用短重建窗口(8s)——半程(45s)太迟,
+      // 用户盯着没反馈的界面会以为点击无效。
+      if (!recreated && Date.now() > recreateAt) {
         recreated = true;
         try {
           await chrome.offscreen.closeDocument();
@@ -396,7 +398,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         (async () => {
           try {
             await ensureOffscreen();
-            const res = await sendToOffscreen({ type: "MODEL_INSTALL" }, 90000);
+            const res = await sendToOffscreen({ type: "MODEL_INSTALL" }, 90000, 8000);
             sendResponse(res || { ok: true });
           } catch (err) {
             sendResponse({ ok: false, error: String(err.message || err) });
@@ -408,7 +410,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         (async () => {
           try {
             await ensureOffscreen();
-            const res = await sendToOffscreen({ type: "MODEL_DELETE" }, 90000);
+            const res = await sendToOffscreen({ type: "MODEL_DELETE" }, 90000, 8000);
             sendResponse(res || { ok: true });
           } catch (err) {
             sendResponse({ ok: false, error: String(err.message || err) });
@@ -420,7 +422,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         (async () => {
           try {
             await ensureOffscreen();
-            const res = await sendToOffscreen({ type: "CSC_INSTALL" }, 90000);
+            const res = await sendToOffscreen({ type: "CSC_INSTALL" }, 90000, 8000);
             sendResponse(res || { ok: true });
           } catch (err) {
             sendResponse({ ok: false, error: String(err.message || err) });
@@ -432,7 +434,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         (async () => {
           try {
             await ensureOffscreen();
-            const res = await sendToOffscreen({ type: "CSC_DELETE" }, 90000);
+            const res = await sendToOffscreen({ type: "CSC_DELETE" }, 90000, 8000);
             sendResponse(res || { ok: true });
           } catch (err) {
             sendResponse({ ok: false, error: String(err.message || err) });
@@ -446,7 +448,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         (async () => {
           try {
             await ensureOffscreen();
-            const res = await sendToOffscreen({ type: "WHISPER_INSTALL" }, 90000);
+            const res = await sendToOffscreen({ type: "WHISPER_INSTALL" }, 90000, 8000);
             sendResponse(res || { ok: true });
           } catch (err) {
             sendResponse({ ok: false, error: String(err.message || err) });
@@ -458,7 +460,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         (async () => {
           try {
             await ensureOffscreen();
-            const res = await sendToOffscreen({ type: "WHISPER_DELETE" }, 90000);
+            const res = await sendToOffscreen({ type: "WHISPER_DELETE" }, 90000, 8000);
             sendResponse(res || { ok: true });
           } catch (err) {
             sendResponse({ ok: false, error: String(err.message || err) });
@@ -471,7 +473,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         (async () => {
           try {
             await ensureOffscreen();
-            const res = await sendToOffscreen({ type: "SENSEVOICE_INSTALL" }, 90000);
+            const res = await sendToOffscreen({ type: "SENSEVOICE_INSTALL" }, 90000, 8000);
             sendResponse(res || { ok: true });
           } catch (err) {
             const raw = String(err?.message || err);
@@ -489,7 +491,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         (async () => {
           try {
             await ensureOffscreen();
-            const res = await sendToOffscreen({ type: "SENSEVOICE_DELETE" }, 90000);
+            const res = await sendToOffscreen({ type: "SENSEVOICE_DELETE" }, 90000, 8000);
             sendResponse(res || { ok: true });
           } catch (err) {
             sendResponse({ ok: false, error: String(err.message || err) });
@@ -501,7 +503,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         (async () => {
           try {
             await ensureOffscreen();
-            const res = await sendToOffscreen({ type: "MODEL_CHECK" }, 45000);
+            const res = await sendToOffscreen({ type: "MODEL_CHECK" }, 45000, 8000);
             let { modelStatus } = await chrome.storage.local.get("modelStatus");
             // 自愈僵尸 downloading:下载在 offscreen/renderer 里跑,每 ~250ms
             // 写一次进度;超过 90s 没有新写入 = 下载进程已死(浏览器重启/
@@ -598,7 +600,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 // first run: open onboarding (mic permission grant)
 chrome.runtime.onInstalled.addListener(async (details) => {
+  ensureOffscreen().catch(() => {}); // 预热:模块图(transformers+ORT)冷加载数秒
   if (details.reason === "install") {
     await chrome.tabs.create({ url: chrome.runtime.getURL("onboarding/onboarding.html") });
   }
+});
+chrome.runtime.onStartup.addListener(() => {
+  ensureOffscreen().catch(() => {}); // 浏览器启动即预热,顺带清掉跨会话僵尸场景
 });
