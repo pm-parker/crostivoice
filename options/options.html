@@ -246,9 +246,6 @@ select:focus-visible, input:focus-visible, textarea:focus-visible, button:focus-
 }
 
 /* segmented control (radio-based) */
-.row-col { flex-direction: column; align-items: stretch; gap: 10px; }
-.seg-wide { justify-content: flex-start; }
-.seg-wide label { padding: 6px 14px; white-space: nowrap; }
 .seg {
   display: inline-flex;
   padding: 2px;
@@ -588,16 +585,16 @@ kbd {
           <option value="ko-KR">한국어</option>
         </select>
       </div>
-      <div class="row row-col">
+      <div class="row">
         <div>
           <div class="lbl">识别引擎</div>
           <div class="hint" id="engine-hint">云端可达时用谷歌云端(质量优先);断网自动转本地继续</div>
         </div>
-        <div class="seg seg-wide" role="radiogroup" aria-label="识别引擎">
-          <input type="radio" name="recog-engine" value="auto" id="re-auto" checked><label for="re-auto">自动</label>
-          <input type="radio" name="recog-engine" value="sensevoice" id="re-sv"><label for="re-sv">SenseVoice 本地</label>
-          <input type="radio" name="recog-engine" value="server" id="re-server"><label for="re-server">Chrome 云端</label>
-        </div>
+        <select id="recog-engine">
+          <option value="auto">自动(云端优先,断网转本地)</option>
+          <option value="sensevoice">SenseVoice 本地</option>
+          <option value="server">Chrome 云端</option>
+        </select>
       </div>
       <div class="row" id="recog-local-row">
         <div>

@@ -360,8 +360,10 @@ async function load() {
   // 取代)不再作为可选项,读取时归一到 auto
   const legacyEngine = { local: "auto", whisper: "auto" };
   const engineVal = legacyEngine[settings.recogEngine] || settings.recogEngine || "auto";
-  const engineRadio = document.querySelector(`input[name="recog-engine"][value="${engineVal}"]`);
-  if (engineRadio) engineRadio.checked = true;
+  const engineSelect = $("recog-engine");
+  if (engineSelect && [...engineSelect.options].some((o) => o.value === engineVal)) {
+    engineSelect.value = engineVal;
+  }
   updateEngineHint();
   const { floatButton = true } = await chrome.storage.local.get("floatButton");
   $("float-button").checked = !!floatButton;
@@ -529,7 +531,7 @@ function collectSettings() {
   return {
     language: $("language").value,
     floatButton: $("float-button").checked,
-    recogEngine: document.querySelector('input[name="recog-engine"]:checked')?.value || "auto",
+    recogEngine: $("recog-engine").value,
     smartPolish: $("smart-polish").checked,
     punctStyle: document.querySelector("input[name='punct']:checked").value,
     punctEngine: document.querySelector("input[name='pengine']:checked").value,
@@ -637,12 +639,10 @@ const ENGINE_HINTS = {
 };
 function updateEngineHint() {
   const el = document.getElementById("engine-hint");
-  const val = document.querySelector('input[name="recog-engine"]:checked')?.value;
-  if (el && val) el.textContent = ENGINE_HINTS[val] || "";
+  const sel = document.getElementById("recog-engine");
+  if (el && sel) el.textContent = ENGINE_HINTS[sel.value] || "";
 }
-document.querySelectorAll('input[name="recog-engine"]').forEach((r) => {
-  r.addEventListener("change", updateEngineHint);
-});
+document.getElementById("recog-engine")?.addEventListener("change", updateEngineHint);
 
 load();
 // second pass: engine load from cache (triggered by MODEL_CHECK) takes a
