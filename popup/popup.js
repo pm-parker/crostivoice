@@ -28,14 +28,14 @@ async function refresh() {
   // Warn when the shortcut is not bound — this is the #1 "no response" cause.
   const cmds = await chrome.commands.getAll();
   const unbound = cmds.filter((c) => c.name === "toggle-voice" && !c.shortcut);
-  const warn = $("key-warn");
+  const warn = $("warn-key");
   warn.hidden = unbound.length === 0;
   if (unbound.length) {
-    $("key-warn-text").textContent = "提示:主交互「按住 Search+A 说话」不需要绑定。点按模式(Alt+A)未绑定,如需请到快捷键页设置。";
+    $("warn-key-text").textContent = "提示:主交互「按住 Search+A 说话」不需要绑定。点按模式(Alt+A)未绑定,如需请到快捷键页设置。";
   }
 
   const { micGranted } = await chrome.storage.local.get("micGranted");
-  $("mic-warn").hidden = !!micGranted;
+  $("warn-mic").hidden = !!micGranted;
 
   const { history = [] } = await chrome.storage.local.get("history");
   const ul = $("hist");
