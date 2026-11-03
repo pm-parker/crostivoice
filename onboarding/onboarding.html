@@ -2,66 +2,165 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<title>CrostiVoice 麦克风授权</title>
+<title>CrostiVoice 开始使用</title>
 <style>
-  :root { color-scheme: light dark; }
-  body {
-    font-family: system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
-    max-width: 520px; margin: 0 auto; padding: 48px 20px; text-align: center;
-    background: #fff; color: #101828; line-height: 1.7;
+:root {
+  color-scheme: light dark;
+  --bg: #f9fafb; --surface: #fff; --border: #eaecf0;
+  --text: #101828; --text-2: #475467; --text-3: #8792a2;
+  --brand: #175cd3; --brand-weak: #eaf1fd;
+  --ok: #067647; --ok-bg: #ecfdf3;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f1114; --surface: #16181d; --border: #262a31;
+    --text: #f0f1f3; --text-2: #a8adb8; --text-3: #6f7683;
+    --brand: #2f6fe0; --brand-weak: #16233c;
+    --ok: #75e0a7; --ok-bg: #10281e;
   }
-  @media (prefers-color-scheme: dark) { body { background: #0b1220; color: #f5f8ff; } }
-  h1 { font-size: 20px; }
-  .icon { width: 72px; height: 72px; border-radius: 18px; margin-bottom: 16px; }
-  .step { text-align: left; background: #f8fafc; border: 1px solid #eaecf0; border-radius: 12px; padding: 14px 18px; margin: 18px 0; font-size: 14px; }
-  @media (prefers-color-scheme: dark) { .step { background: #101828; border-color: #1f2937; } }
-  button {
-    background: #175cd3; color: #fff; border: none; border-radius: 10px;
-    padding: 12px 28px; font-size: 15px; cursor: pointer; margin-top: 8px;
-  }
-  .ok { color: #067647; font-size: 15px; }
-  .err { color: #b42318; font-size: 14px; }
-  kbd { background: #f2f4f7; border: 1px solid #d0d5dd; border-radius: 4px; padding: 1px 6px; font-size: 12px; }
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body {
+  font-family: system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+  background: var(--bg); color: var(--text);
+  margin: 0; padding: 40px 20px 64px; line-height: 1.65;
+}
+.page { max-width: 560px; margin: 0 auto; }
+
+/* ── hero ── */
+.hero { text-align: center; margin-bottom: 28px; }
+.hero img { width: 64px; height: 64px; border-radius: 16px; }
+.hero h1 { font-size: 21px; margin: 12px 0 4px; }
+.hero p { margin: 0; color: var(--text-2); font-size: 14px; }
+
+/* ── steps ── */
+.step {
+  position: relative;
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr);
+  gap: 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 18px 20px;
+  margin: 14px 0;
+}
+.step .no {
+  width: 28px; height: 28px; border-radius: 50%;
+  background: var(--brand-weak); color: var(--brand);
+  font-size: 14px; font-weight: 600;
+  display: flex; align-items: center; justify-content: center;
+  margin-top: 1px;
+}
+.step.done .no { background: var(--ok-bg); color: var(--ok); }
+.step h2 { font-size: 15px; margin: 0 0 4px; }
+.step h2 .state { font-size: 12px; font-weight: 500; color: var(--ok); margin-left: 6px; }
+.step .body { font-size: 13.5px; color: var(--text-2); }
+.step .body b { color: var(--text); }
+
+button {
+  background: var(--brand); color: #fff; border: none; border-radius: 10px;
+  padding: 10px 24px; font-size: 14px; cursor: pointer; margin-top: 10px;
+}
+button.ghost {
+  background: transparent; color: var(--brand);
+  border: 1px solid var(--brand); padding: 9px 22px;
+}
+button:disabled { opacity: .65; cursor: default; }
+
+#result { font-size: 13.5px; margin-top: 8px; }
+#result.ok { color: var(--ok); }
+#result.err { color: #b42318; }
+
+.tip { font-size: 12px; color: var(--text-3); margin-top: 8px; }
+
+kbd {
+  background: var(--bg); border: 1px solid var(--border); border-bottom-width: 2px;
+  border-radius: 5px; padding: 1px 7px; font-size: 12px;
+  font-family: ui-monospace, Menlo, monospace;
+}
+
+/* ③ 使用要诀 */
+.keys { display: grid; gap: 8px; margin: 10px 0 2px; }
+.keyrow {
+  display: flex; align-items: baseline; gap: 10px;
+  font-size: 13.5px; color: var(--text-2);
+}
+.keyrow kbd { flex: none; min-width: 64px; text-align: center; }
+.keyrow .k-desc b { color: var(--text); }
+
+/* ── footnotes ── */
+.notes {
+  margin-top: 26px; padding: 0 4px;
+  font-size: 12px; color: var(--text-3); line-height: 1.8;
+}
+.notes b { color: var(--text-2); }
+.notes details { margin: 6px 0; }
+.notes summary { cursor: pointer; color: var(--text-2); }
 </style>
 </head>
 <body>
-  <img class="icon" src="../icons/icon-128.png" alt="">
-  <h1>欢迎使用 CrostiVoice 🎙</h1>
-  <p>说话,它替你打字。</p>
+<div class="page">
 
-  <div class="step">
-    <b>① 授权麦克风(只需一次)</b><br>
-    点击下面的按钮,浏览器会询问麦克风权限,选择「允许」。<br><br>
-    <button id="grant">授权麦克风</button>
-    <div id="result"></div>
+  <div class="hero">
+    <img src="../icons/icon-128.png" alt="CrostiVoice">
+    <h1>欢迎使用 CrostiVoice</h1>
+    <p>说话,它替你打字——三步开始</p>
   </div>
-  <div class="step">
-    <b>② 设置快捷键(重要)</b><br>
-    <span id="shortcut-status">正在检查快捷键绑定…</span><br><br>
-    <button id="open-shortcuts">打开快捷键设置</button>
-    <div id="shortcut-tip" style="font-size:12px;color:#64748b;margin-top:6px">
-      在打开的页面中找到 CrostiVoice,把「语音输入」设为 <kbd>Alt+A</kbd>(或你喜欢的键),建议选「全局」。
+
+  <div class="step" id="step-mic">
+    <div class="no">1</div>
+    <div>
+      <h2>授权麦克风<span class="state" hidden>已完成</span></h2>
+      <div class="body">只需一次。点击后浏览器会询问权限,选择「允许」。</div>
+      <button id="grant">授权麦克风</button>
+      <div id="result"></div>
     </div>
   </div>
-  <div class="step">
-    <b>③ 开始使用</b><br>
-    打开任意网页,点一下输入框:<br>
-    · <b>点一下 <kbd>Search+A</kbd> 开始说话,说完停顿一下,文字自动断句上屏</b>(此键由页面内脚本实现,无需上面的快捷键设置,但仅在网页内生效)<br>
-    · <kbd>Alt+A</kbd>(若已按上一步设置)在任意地方生效<br>
-    · 再按一下可立即结束 · 网页右下角麦克风同样点一下开始<br>
-    · 提示:不要长按搜索键(会触发系统 Assistant)
-    · 小技巧:口述「逗号」「句号」「问号」「换行」可直接输入标点
-  </div>
-  <div class="step">
-    <b>更新/重装后必读</b><br>
-    · 扩展更新后,已在打开的页面可能需要<b>刷新一次(F5)</b>才能恢复语音按钮<br>
-    · 首次在某个网站使用时,若提示「麦克风未授权」,重新点一次工具栏图标完成授权
-  </div>
-  <div class="step">
-    <b>ChromeOS 提示</b><br>
-    如果没有声音,请确认系统设置已允许浏览器使用麦克风(设置 → 隐私和安全 → 网站设置 → 麦克风)。
+
+  <div class="step" id="step-key">
+    <div class="no">2</div>
+    <div>
+      <h2>设置快捷键<span class="state" hidden>已绑定</span></h2>
+      <div class="body" id="shortcut-status">正在检查快捷键绑定…</div>
+      <button class="ghost" id="open-shortcuts">打开快捷键设置</button>
+      <div class="tip" id="shortcut-tip">
+        在打开的页面找到 CrostiVoice,把「语音输入」设为 <kbd>Alt+A</kbd>(建议选「全局」,任意界面都能唤起)。
+      </div>
+    </div>
   </div>
 
+  <div class="step">
+    <div class="no">3</div>
+    <div>
+      <h2>开始听写</h2>
+      <div class="keys">
+        <div class="keyrow"><kbd>Search+A</kbd><span class="k-desc"><b>网页内点一下即说</b>,停顿自动断句上屏,再按立即结束</span></div>
+        <div class="keyrow"><kbd>Alt+A</kbd><span class="k-desc">你设置的快捷键,<b>任意界面</b>生效</span></div>
+        <div class="keyrow"><kbd>🎙</kbd><span class="k-desc">网页右下角浮动麦克风,点按同快捷键</span></div>
+      </div>
+      <div class="tip">口述「逗号」「句号」「问号」「换行」可直接输入标点 · 不要长按搜索键(会触发系统 Assistant)</div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <b>遇到问题?</b>
+    <details>
+      <summary>更新/重装后没反应</summary>
+      已打开的页面需刷新一次(F5);仍无效时到 chrome://extensions 重载扩展并重启浏览器。
+    </details>
+    <details>
+      <summary>ChromeOS 没有声音 / 提示未授权</summary>
+      系统设置 → 隐私和安全 → 网站设置 → 麦克风,确认允许浏览器使用;扩展侧重新点一次工具栏图标完成授权。
+    </details>
+    <details>
+      <summary>想完全离线、免翻墙识别</summary>
+      设置页下载「SenseVoice 离线模型」(228MB)后,引擎选「SenseVoice 本地」——零上传、自带标点。
+    </details>
+  </div>
+
+</div>
 <script src="onboarding.js"></script>
 </body>
 </html>

@@ -1,8 +1,18 @@
-// CrostiVoice onboarding — grant mic permission once for the extension origin.
-// The offscreen document shares this origin, so it can use the mic without prompts.
+// CrostiVoice onboarding — 授权麦克风 + 快捷键检测 + 使用指引。
+// offscreen 文档与本页同源,授权一次即全局生效。
 
 const result = document.getElementById("result");
 const btn = document.getElementById("grant");
+const stepMic = document.getElementById("step-mic");
+const stepKey = document.getElementById("step-key");
+
+function markStepDone(step, label) {
+  if (!step) return;
+  step.classList.add("done");
+  const state = step.querySelector(".state");
+  if (state) state.hidden = false;
+  if (label) step.querySelector("h2 .state") && (step.querySelector("h2 .state").textContent = label);
+}
 
 btn.addEventListener("click", async () => {
   result.textContent = "";
@@ -12,10 +22,11 @@ btn.addEventListener("click", async () => {
     // Immediately release — we only needed the permission grant.
     stream.getTracks().forEach((t) => t.stop());
     await chrome.storage.local.set({ micGranted: true, micGrantedAt: Date.now() });
-    result.textContent = "✓ 麦克风已就绪!继续完成下面的快捷键设置。";
+    result.textContent = "✓ 麦克风已就绪";
     result.className = "ok";
     btn.textContent = "已完成 ✓";
     btn.disabled = true;
+    markStepDone(stepMic);
   } catch (err) {
     result.textContent =
       err.name === "NotAllowedError"
@@ -26,23 +37,24 @@ btn.addEventListener("click", async () => {
 });
 
 // ---------- 快捷键绑定检测 ----------
-// unpacked 安装不会自动应用 manifest 的建议键(实测:全新加载后
-// toggle-voice 为空,Alt+A 无效,用户以为"唤不起语音")。onboarding
-// 主动检测并引导设置;已绑定则直接确认。
+// unpacked 安装不会自动应用建议键(实测:全新加载后 toggle-voice 为空),
+// 这里主动检测并引导设置;已绑定则直接点亮步骤完成态。
 const shortcutStatus = document.getElementById("shortcut-status");
 const openBtn = document.getElementById("open-shortcuts");
+const shortcutTip = document.getElementById("shortcut-tip");
 
 async function checkShortcut() {
   try {
     const cmds = await chrome.commands.getAll();
     const toggle = cmds.find((c) => c.name === "toggle-voice");
     if (toggle && toggle.shortcut) {
-      shortcutStatus.innerHTML = `✓ 快捷键已绑定:<b><kbd>${toggle.shortcut}</kbd></b> — 随时可用`;
+      shortcutStatus.innerHTML = `✓ 已绑定 <kbd>${toggle.shortcut}</kbd> — 随时可用`;
       openBtn.hidden = true;
-      document.getElementById("shortcut-tip").hidden = true;
+      shortcutTip.hidden = true;
+      markStepDone(stepKey);
     } else {
       shortcutStatus.innerHTML =
-        '⚠ 尚未绑定快捷键(开发者模式安装不会自动应用建议键)。<b>点击下方按钮设为 Alt+A</b>,选「全局」后任意界面都能唤起。';
+        '尚未绑定(开发者模式安装不会自动应用建议键)。<b>点击下方按钮设为 Alt+A</b>,选「全局」后任意界面都能唤起。';
       openBtn.hidden = false;
     }
   } catch {
