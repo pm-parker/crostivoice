@@ -31,7 +31,7 @@ out = sys.argv[1]
 # sensevoice-engine.js 漏出包外,offscreen.js import 404 → 模块图永远
 # 挂起 → 监听器不注册 → "唤不起语音" 且无任何报错)
 include = sorted(glob.glob('*.js')) + [
-    'manifest.json', 'offscreen.html',
+    'manifest.json', 'offscreen.html', 'beta.json',
     'popup', 'options', 'onboarding', 'icons', 'vendor',
     'README.md', 'PRIVACY.md', 'LICENSE',
 ]

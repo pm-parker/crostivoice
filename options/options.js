@@ -367,10 +367,17 @@ async function load() {
   ).checked = true;
   renderDictList(await getDictionary());
 
-  // version chip
+  // version chip(带 Beta 标识:beta.json 由发布流程维护,正式版删 label 即可)
   const manifest = chrome.runtime.getManifest();
-  $("ver-chip").textContent = `v${manifest.version}`;
-  $("ver-chip-about").textContent = `v${manifest.version}`;
+  let verLabel = `v${manifest.version}`;
+  try {
+    const beta = await (await fetch(chrome.runtime.getURL("/beta.json"))).json();
+    if (beta?.label) verLabel += `-${beta.label}`;
+  } catch {
+    /* 正式版无此文件 */
+  }
+  $("ver-chip").textContent = verLabel;
+  $("ver-chip-about").textContent = verLabel;
   refreshModelStatus();
   refreshBuiltinNote();
   refreshRecogLocal();
