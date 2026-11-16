@@ -1,3 +1,10 @@
+# ⚠️ 已停止维护 / Unmaintained
+
+> **本项目自 2026-11 起停止维护**，不再接收功能更新与缺陷修复。最后版本为 [v1.0.0](https://github.com/pm-parker/crostivoice/releases/tag/v1.0.0)，仓库与历史版本保留可用，欢迎自行 fork。
+>
+> 语音输入方向的需求由继任项目 **[vox](https://github.com/pm-parker/vox)** 承接——Linux 桌面（Omarchy/Wayland）离线语音听写，同样本地推理、零遥测。
+
+---
 <div align="center">
 
 <a name="zh-cn"></a>
